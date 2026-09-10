@@ -117,7 +117,10 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 
 **我也用 Codex。**
 只要有 `codex` 命令，它就会自动出现在菜单里。想用多个 Codex 账号，
-把工具列写成 `codex`，例如：`codex	work	cxw	公司工作区`
+把工具列写成 `codex`。Codex 配置以 **工作区** 为单位：个人工作区一个、每个团队一个，在各配置里执行
+`CODEX_HOME=~/.codex-profiles/名称 codex login` 时，在浏览器授权页选择对应工作区。同一个 ChatGPT 账号下各工作区的额度也是分开的。
+Codex 不返回工作区名称，菜单里只显示配置名和套餐（pro/team）。若两个配置的邮箱、套餐、用量完全相同，说明登录的是同一个工作区，
+在其中一个里重新 `codex login` 选另一个工作区即可。例如：`codex	work	cxw	公司工作区`
 
 **菜单要等几秒才出来。**
 那是在查询每个账号的剩余额度：每个约 3 秒，并行执行，总时间也差不多。如上所述，不消耗积分。

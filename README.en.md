@@ -117,7 +117,11 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 
 **I use Codex too.**
 If the `codex` command exists, it appears in the menu automatically. For several Codex accounts,
-put `codex` in the tool column: `codex	work	cxw	company workspace`
+put `codex` in the tool column. A Codex profile is **one workspace**: make one profile for your personal workspace and one per team,
+and when you run `CODEX_HOME=~/.codex-profiles/<name> codex login` in each, pick that workspace on the browser approval screen.
+Quotas are per workspace even under the same ChatGPT login. Codex does not report the workspace name, so the menu shows only your
+profile name and the plan (pro/team). If two profiles show the same email, plan and usage, they are logged into the same workspace;
+run `codex login` again in one of them and choose the other workspace. Example line: `codex	work	cxw	company workspace`
 
 **The menu takes a few seconds.**
 That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same. As noted above, it costs no credits.
