@@ -112,6 +112,10 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 계정마다 남은 한도를 조회하는 시간입니다. 계정당 3초 정도이고 병렬로 돌아 전체도 그 정도입니다.
 모델을 호출하지 않으므로 토큰은 들지 않습니다.
 
+**메뉴 언어를 바꾸고 싶습니다.**
+메뉴·메시지·상태줄은 한국어, English, 日本語, 中文을 지원합니다. 기본은 터미널 로케일(`LANG`)을 따르고,
+`~/.config/ccp/config.zsh`에 `CCP_LANG=en`처럼 적으면 고정됩니다. 한 번만 바꿔 보려면 `CCP_LANG=en ccp`.
+
 **원래 쓰던 상태줄이 있습니다.**
 `install.sh --no-statusline`으로 설치하면 상태줄은 건드리지 않습니다.
 

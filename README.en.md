@@ -18,8 +18,6 @@ One screen shows how much each account has left. Codex CLI accounts appear in th
 
 Type `ccp` to get this screen; Enter alone opens the account with the most room right now.
 
-> The menu text is in Korean for now. The commands below work the same in any locale.
-
 ## Getting started
 
 Requirements: macOS or Linux, zsh (default on macOS), python3 (ships with macOS), and Claude Code already installed.
@@ -113,6 +111,10 @@ put `codex` in the tool column: `codex	work	cxw	company workspace`
 **The menu takes a few seconds.**
 That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same.
 No model is called, so it costs no tokens.
+
+**Can I change the menu language?**
+Menu, messages and status line come in English, 한국어, 日本語 and 中文. The default follows your terminal locale (`LANG`);
+set `CCP_LANG=en` in `~/.config/ccp/config.zsh` to pin it, or `CCP_LANG=ja ccp` for a one-off.
 
 **I already have a status line.**
 Install with `install.sh --no-statusline` and it is left untouched.

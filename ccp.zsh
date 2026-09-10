@@ -41,6 +41,16 @@ CCP_PROFILES_TSV="$CCP_CONFIG_DIR/profiles.tsv"
 typeset -ga CCP_CLAUDE_ARGS
 [ -f "$CCP_CONFIG_DIR/config.zsh" ] && source "$CCP_CONFIG_DIR/config.zsh"
 
+# 표시 언어. config.zsh 의 CCP_LANG(ko/en/ja/zh)이 있으면 그것, 없으면 로케일(LC_ALL→LC_MESSAGES→LANG)에서.
+# ko/ja/zh 가 아니면 en. python 자식(렌더러·statusline)도 같은 값을 쓰도록 export 한다.
+_ccp_lang_detect() {
+  local l="${CCP_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
+  case "${l:l}" in ko*) print ko;; ja*) print ja;; zh*) print zh;; *) print en;; esac
+}
+export CCP_LANG="$(_ccp_lang_detect)"
+source "$_CCP_HOME/ccp_i18n.zsh"          # 문구 사전(생성 파일). 원본은 ccp_i18n.py
+_CCP_DEFAULT="$(_ccp_t default)"           # 기본 프로필(~/.claude, ~/.codex)의 표시 이름
+
 CLAUDE_PROFILES="${CLAUDE_PROFILES:-$HOME/.claude-profiles}"
 CODEX_PROFILES="${CODEX_PROFILES:-$HOME/.codex-profiles}"
 
@@ -54,10 +64,10 @@ _ccp_who() {
   python3 -c "
 import json,sys
 try: a=json.load(open(sys.argv[1])).get('oauthAccount') or {}
-except Exception: print('(미로그인)'); raise SystemExit
-if not a.get('emailAddress'): print('(미로그인)'); raise SystemExit
+except Exception: print(sys.argv[2]); raise SystemExit
+if not a.get('emailAddress'): print(sys.argv[2]); raise SystemExit
 print(f\"{a['emailAddress']}  {(a.get('organizationName') or '')[:26]}\")
-" "$1" 2>/dev/null || printf '(미로그인)\n'
+" "$1" "$(_ccp_t z_nologin)" 2>/dev/null || _ccp_tl z_nologin
 }
 
 # 로그인 여부만. 미로그인 프로필은 /usage 를 부를 필요가 없다(호출당 ~3.5s).
@@ -140,7 +150,7 @@ _cxp_usage_one() {
     || printf '\t\t\t\t\t\tfail\t\t\t\t\t\n'
 }
 
-_cxp_who() { python3 "$_CCP_HOME/ccp_codex.py" who "${1:-$HOME/.codex}" 2>/dev/null || printf '(조회 실패)\n' }
+_cxp_who() { python3 "$_CCP_HOME/ccp_codex.py" who "${1:-$HOME/.codex}" 2>/dev/null || _ccp_tl z_query_fail }
 
 # ── 렌더러 ─────────────────────────────────────────────────────────────────
 # 쓸 수 있는 계정을 위로 올리고, 그중 여유가 가장 큰 하나를 '추천' 으로 찍는다.
@@ -155,14 +165,15 @@ _ccp_render() { python3 "$_CCP_HOME/ccp_render.py" "$@" }
 # _CCP_TOOLS/_CCP_NAMES/_CCP_DIRS/_CCP_SPECS 는 같은 순서의 평행 배열.
 #   디렉터리가 빈 값이면 그 도구의 기본 홈(claude 는 ~/.claude.json, codex 는 ~/.codex).
 _ccp_entries() {
+  _CCP_DEFAULT="$(_ccp_t default)"   # 호출 시점의 CCP_LANG 을 따르게(CCP_LANG=en ccp 처럼 한 번만 바꿔 쓸 때)
   _CCP_TOOLS=(); _CCP_NAMES=(); _CCP_DIRS=(); _CCP_SPECS=()
   local n
-  _CCP_TOOLS+=(claude); _CCP_NAMES+=("기본"); _CCP_DIRS+=("");                    _CCP_SPECS+=("claude:기본")
+  _CCP_TOOLS+=(claude); _CCP_NAMES+=("$_CCP_DEFAULT"); _CCP_DIRS+=("");           _CCP_SPECS+=("claude:$_CCP_DEFAULT")
   for n in $(_ccp_list); do
     _CCP_TOOLS+=(claude); _CCP_NAMES+=("$n"); _CCP_DIRS+=("$CLAUDE_PROFILES/$n"); _CCP_SPECS+=("claude:$n")
   done
   _cxp_available || return 0
-  _CCP_TOOLS+=(codex);  _CCP_NAMES+=("기본"); _CCP_DIRS+=("$HOME/.codex");        _CCP_SPECS+=("codex:기본")
+  _CCP_TOOLS+=(codex);  _CCP_NAMES+=("$_CCP_DEFAULT"); _CCP_DIRS+=("$HOME/.codex"); _CCP_SPECS+=("codex:$_CCP_DEFAULT")
   for n in $(_cxp_list); do
     _CCP_TOOLS+=(codex);  _CCP_NAMES+=("$n"); _CCP_DIRS+=("$CODEX_PROFILES/$n");  _CCP_SPECS+=("codex:$n")
   done
@@ -193,7 +204,7 @@ _ccp_current() {
 # 사용량을 받아 그린다. $1 = "num"(번호·대화형) 또는 "-"
 _ccp_show() {
   local mode="$1" tmp="$2"
-  [ -t 1 ] && printf '  사용량 조회 중… (%d개)\r' ${#_CCP_NAMES}
+  [ -t 1 ] && { _ccp_t z_querying ${#_CCP_NAMES}; printf '\r'; }
   _ccp_collect "$tmp"
   [ -t 1 ] && printf '\033[2K\r'
   _ccp_render "$tmp" "$mode" "$(_ccp_current)" "${_CCP_SPECS[@]}"
@@ -207,15 +218,16 @@ ccp-usage() {
 }
 
 ccp-ls() {
+  _CCP_DEFAULT="$(_ccp_t default)"
   printf '\033[1;36mClaude\033[0m\n'
-  printf '  %-14s %s\n' "기본" "$(_ccp_who "$HOME/.claude.json")"
+  printf '  %-14s %s\n' "$_CCP_DEFAULT" "$(_ccp_who "$HOME/.claude.json")"
   local n
   for n in $(_ccp_list); do
     printf '  %-14s %s\n' "$n" "$(_ccp_who "$CLAUDE_PROFILES/$n/.claude.json")"
   done
   _cxp_available || return 0
   printf '\033[1;36mCodex\033[0m\n'
-  printf '  %-14s %s\n' "기본" "$(_cxp_who "$HOME/.codex")"
+  printf '  %-14s %s\n' "$_CCP_DEFAULT" "$(_cxp_who "$HOME/.codex")"
   for n in $(_cxp_list); do
     printf '  %-14s %s\n' "$n" "$(_cxp_who "$CODEX_PROFILES/$n")"
   done
@@ -266,7 +278,7 @@ _ccp_tsv_rows() {
 _ccp_tsv_add() {
   local tool="$1" name="$2" alias="${3:-}" desc="${4:-}"
   mkdir -p "$CCP_CONFIG_DIR"
-  [ -f "$CCP_PROFILES_TSV" ] || printf '# 도구\t이름\t별칭\t설명\n' > "$CCP_PROFILES_TSV"
+  [ -f "$CCP_PROFILES_TSV" ] || _ccp_tl z_tsv_header > "$CCP_PROFILES_TSV"
   _ccp_tsv_rows | awk -F'\t' -v t="$tool" -v n="$name" '$1==t && $2==n{f=1} END{exit !f}' && return 0
   printf '%s\t%s\t%s\t%s\n' "$tool" "$name" "$alias" "$desc" >> "$CCP_PROFILES_TSV"
 }
@@ -276,11 +288,11 @@ ccp-sync() {
   local tool name alias desc made=0
   while IFS=$'\t' read -r tool name alias desc; do
     if _ccp_mkprofile "$tool" "$name"; then
-      printf '생성: %s %s\n' "$tool" "$name"; made=$((made+1))
+      _ccp_tl z_created "$tool" "$name"; made=$((made+1))
     fi
   done < <(_ccp_tsv_rows)
-  if (( made )); then printf '다음: ccp → 새 프로필마다 /login (codex 는 CODEX_HOME=<디렉터리> codex login)\n'
-  else printf '프로필 전부 있음 (%s)\n' "$CCP_PROFILES_TSV"; fi
+  if (( made )); then _ccp_tl z_sync_next
+  else _ccp_tl z_sync_all "$CCP_PROFILES_TSV"; fi
 }
 
 # 단축 별칭. TSV 의 별칭 칸이 비어 있지 않은 줄마다 alias <별칭>="ccp <도구>:<이름>".
@@ -292,7 +304,7 @@ _ccp_define_aliases() {
     kind="$(whence -w -- "$alias" 2>/dev/null)"; kind="${kind##*: }"
     case "$kind" in
       ''|none|alias) ;;   # 없거나(none) 우리가 이미 만든 별칭이면 (다시) 정의한다
-      *) printf 'ccp: 별칭 %s 은(는) 이미 있는 %s 이라 건너뜀 (%s)\n' "$alias" "$kind" "$CCP_PROFILES_TSV" >&2; continue ;;
+      *) _ccp_tl z_alias_conflict "$alias" "$kind" "$CCP_PROFILES_TSV" >&2; continue ;;
     esac
     alias "$alias"="ccp $tool:$name"
   done < <(_ccp_tsv_rows)
@@ -302,18 +314,18 @@ _ccp_define_aliases
 ccp-new() {
   local tool=claude
   if [[ "$1" == --codex || "$1" == -x ]]; then tool=codex; shift; fi
-  local name="${1:?사용법: ccp-new <프로필이름> [별칭] [설명] | ccp-new --codex <프로필이름> [별칭] [설명]}"
+  local name="${1:?$(_ccp_t z_new_usage)}"
   local alias="${2:-}" desc="${3:-}" d
   [[ "$tool" == codex ]] && d="$CODEX_PROFILES/$name" || d="$CLAUDE_PROFILES/$name"
-  if ! _ccp_mkprofile "$tool" "$name"; then printf '이미 있음: %s\n' "$d"; return 1; fi
+  if ! _ccp_mkprofile "$tool" "$name"; then _ccp_tl z_exists "$d"; return 1; fi
   _ccp_tsv_add "$tool" "$name" "$alias" "$desc"
   [[ -n "$alias" ]] && alias "$alias"="ccp $tool:$name"
-  printf '생성: %s\n기록: %s\n' "$d" "$CCP_PROFILES_TSV"
+  _ccp_tl z_created_at "$d" "$CCP_PROFILES_TSV"
   if [[ "$tool" == codex ]]; then
-    printf '다음: CODEX_HOME=%s codex login\n' "$d"
-    printf '  (같은 ChatGPT 계정이라도 브라우저 승인 화면에서 워크스페이스를 골라야 한다)\n'
+    _ccp_tl z_codex_next "$d"
+    _ccp_tl z_codex_ws
   else
-    printf '다음: ccp %s → /login\n' "$name"
+    _ccp_tl z_claude_next "$name"
   fi
 }
 
@@ -322,13 +334,15 @@ ccp-new() {
 _ccp_find() {
   local want="$1" tool="" i
   if [[ "$want" == claude:* || "$want" == codex:* ]]; then tool="${want%%:*}"; want="${want#*:}"; fi
+  # 기본 프로필은 표시 언어와 무관하게 'default' 또는 '기본' 으로도 부를 수 있게
+  [[ "$want" == default || "$want" == 기본 ]] && want="$_CCP_DEFAULT"
   local -a hit
   for i in {1..${#_CCP_NAMES}}; do
     [[ -n "$tool" && "${_CCP_TOOLS[$i]}" != "$tool" ]] && continue
     [[ "${_CCP_NAMES[$i]}" == "$want" ]] && hit+=($((i-1)))
   done
   (( ${#hit} == 1 )) && { printf '%s\n' "${hit[1]}"; return 0; }
-  (( ${#hit} > 1 )) && { printf "이름이 겹친다: %s — claude:%s / codex:%s 처럼 도구를 붙여라\n" "$want" "$want" "$want" >&2; return 2; }
+  (( ${#hit} > 1 )) && { _ccp_tl z_name_dup "$want" "$want" "$want" >&2; return 2; }
   return 1
 }
 
@@ -339,7 +353,7 @@ _ccp_find() {
 
 ccp() {
   _ccp_entries
-  (( ${#_CCP_NAMES} > 1 )) || { printf '프로필 없음. ccp-new <이름>\n' >&2; return 1; }
+  (( ${#_CCP_NAMES} > 1 )) || { _ccp_tl z_no_profiles >&2; return 1; }
 
   local sel="${1:-}" grp="" idx=""
   if [ -n "$sel" ]; then shift; else
@@ -355,12 +369,12 @@ ccp() {
       sel="$picked"
     else
       # 파이프 등 터미널이 아닐 때의 예전 방식.
-      printf '  q) 종료\n\n'
+      _ccp_tl z_quit; printf '\n'
       # 엔터 = 추천 계정 바로 실행. 한도 터졌을 때 '엔터 한 번'이 가장 흔한 동작이다.
       if [[ -n "$rec" && "$rec" != "-1" ]]; then
-        printf '선택 [0-%d, q]  (엔터 = 추천 %s) %s: ' $((${#_CCP_NAMES}-1)) "$rec" "${_CCP_NAMES[$((rec+1))]}"
+        _ccp_t z_select_rec $((${#_CCP_NAMES}-1)) "$rec" "${_CCP_NAMES[$((rec+1))]}"
       else
-        printf '선택 [0-%d, q]: ' $((${#_CCP_NAMES}-1))
+        _ccp_t z_select $((${#_CCP_NAMES}-1))
       fi
       read -r sel
       # 쓸 수 있는 계정이 하나도 없으면 엔터는 그냥 종료로 둔다 — 붙일 곳이 없다.
@@ -374,20 +388,20 @@ ccp() {
   [[ -z "$sel" || "$sel" == [qQ] ]] && return 0
 
   if [[ "$sel" == <-> ]]; then
-    (( sel >= 0 && sel < ${#_CCP_NAMES} )) || { printf '범위 밖: %s\n' "$sel" >&2; return 1; }
+    (( sel >= 0 && sel < ${#_CCP_NAMES} )) || { _ccp_tl z_out_of_range "$sel" >&2; return 1; }
     idx="$sel"
   else
     idx=$(_ccp_find "$sel") || {
       (( $? == 2 )) && return 1
-      printf "프로필 '%s' 없음. ccp-new %s\n" "$sel" "$sel" >&2; return 1
+      _ccp_tl z_not_found "$sel" "$sel" >&2; return 1
     }
   fi
 
   # 막힌 계정을 골랐으면 실행은 하되 왜 막혔는지는 알려 준다.
   case "$grp" in
-    1) printf '\033[33m  ⏳ 세션 한도 소진 상태다 — 곧 풀리지만 지금은 막힐 수 있다.\033[0m\n' ;;
-    2) printf '\033[31m  ✕ 주간 한도 소진 상태다 — 지금은 못 쓴다.\033[0m\n' ;;
-    3) printf '\033[31m  ✕ 미로그인/조회 실패 — /login 이 필요할 수 있다.\033[0m\n' ;;
+    1) printf '\033[33m%s\033[0m\n' "$(_ccp_t z_warn_session)" ;;
+    2) printf '\033[31m%s\033[0m\n' "$(_ccp_t z_warn_weekly)" ;;
+    3) printf '\033[31m%s\033[0m\n' "$(_ccp_t z_warn_nologin)" ;;
   esac
 
   local tool="${_CCP_TOOLS[$((idx+1))]}" dir="${_CCP_DIRS[$((idx+1))]}"
@@ -401,7 +415,7 @@ ccp() {
 
   # 같은 이유 — 프로필 세션에서 기본을 골라도 현재 프로필로 뜨면 안 된다.
   if [[ -z "$dir" ]]; then ( unset CLAUDE_CONFIG_DIR; command claude "${CCP_CLAUDE_ARGS[@]}" "$@" ); return; fi
-  [ -d "$dir" ] || { printf "프로필 디렉터리 없음: %s\n" "$dir" >&2; return 1; }
+  [ -d "$dir" ] || { _ccp_tl z_no_dir "$dir" >&2; return 1; }
   CLAUDE_CONFIG_DIR="$dir" command claude "${CCP_CLAUDE_ARGS[@]}" "$@"
 }
 
@@ -410,7 +424,7 @@ _ccp_names() {
   local -a cl cx
   cl=("$CLAUDE_PROFILES"/*(N/:t))
   cx=("$CODEX_PROFILES"/*(N/:t))
-  compadd -- $cl $cx ${cl/#/claude:} ${cx/#/codex:} claude:기본 codex:기본
+  compadd -- $cl $cx ${cl/#/claude:} ${cx/#/codex:} "claude:$_CCP_DEFAULT" "codex:$_CCP_DEFAULT" claude:default codex:default
 }
 # 비대화형 zsh(install.sh 의 zsh -c 등)에는 compdef 가 없다. 그때 실패로 끝나면 source 의 종료 코드가 0 이 아니게 된다.
 (( $+functions[compdef] )) && compdef _ccp_names ccp

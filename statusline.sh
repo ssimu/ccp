@@ -10,8 +10,22 @@
 #   프로필 세션이면 CLAUDE_CONFIG_DIR 이 잡혀 있고, 기본 세션이면 ~/.claude.json 이다.
 # 색: 70% 노랑, 90% 빨강, 100% 굵은 빨강 — ccp 메뉴와 같은 기준.
 # 의존: python3 (ccp 자체가 요구한다). jq 는 필요 없다.
+# 문구는 ccp_i18n.py (CCP_LANG). 이 파일이 심링크로 설치되므로 원본 디렉터리를 찾아 넘긴다.
+_self="${BASH_SOURCE[0]}"; _target="$(readlink "$_self" 2>/dev/null || echo "$_self")"
+export CCP_HOME_DIR="$(cd "$(dirname "$_target")" && pwd)"
 exec python3 -c '
 import json, os, sys, time, subprocess
+sys.path.insert(0, os.environ.get("CCP_HOME_DIR", ""))
+try:
+    from ccp_i18n import t, left as i18n_left
+except Exception:   # 사전을 못 찾아도 상태줄은 죽지 않아야 한다
+    _F = {"default": "default", "nologin": "not logged in", "weekly": "weekly", "session": "session", "sl_no_limits": "quota not yet reported"}
+    def t(k, **kw): return _F.get(k, k)
+    def i18n_left(m):
+        if m is None: return ""
+        if m <= 0: return "soon"
+        d, h, mm = m // 1440, (m % 1440) // 60, m % 60
+        return f"{d}d{h}h" if d else f"{h}h{mm}m" if h else f"{mm}m"
 
 try: d = json.load(sys.stdin)
 except Exception: d = {}
@@ -24,22 +38,16 @@ cfg = os.environ.get("CLAUDE_CONFIG_DIR")
 if cfg:
     acct_file = os.path.join(cfg, ".claude.json"); profile = os.path.basename(cfg.rstrip("/"))
 else:
-    acct_file = os.path.expanduser("~/.claude.json"); profile = "기본"
+    acct_file = os.path.expanduser("~/.claude.json"); profile = t("default")
 email = ""
 try:
     email = (json.load(open(acct_file)).get("oauthAccount") or {}).get("emailAddress") or ""
 except Exception:
     pass
-acct = f"{profile}:{email}" if email else f"{profile}:" + C("미로그인", "33")
+acct = f"{profile}:{email}" if email else f"{profile}:" + C(t("nologin"), "33")
 
 # ── 한도 ──────────────────────────────────────────────────────────────────
-def left(secs):
-    m = max(0, int(round(secs / 60)))
-    if m <= 0: return "곧"
-    dd, hh, mm = m // 1440, (m % 1440) // 60, m % 60
-    if dd: return f"{dd}일{hh}시간"
-    if hh: return f"{hh}시간{mm}분"
-    return f"{mm}분"
+def left(secs): return i18n_left(max(0, int(round(secs / 60))))
 def col(p):
     if p is None: return DIM
     return "1;31" if p >= 100 else "31" if p >= 90 else "33" if p >= 70 else "32"
@@ -56,8 +64,8 @@ def quota(label, w):
     return s
 rl = d.get("rate_limits") or {}
 parts = [acct]
-q = [x for x in (quota("주간", rl.get("seven_day")), quota("세션", rl.get("five_hour"))) if x]
-parts += q if q else [C("한도 조회 전", DIM)]   # 첫 응답 전이거나 API 키 사용자면 rate_limits 가 없다
+q = [x for x in (quota(t("weekly"), rl.get("seven_day")), quota(t("session"), rl.get("five_hour"))) if x]
+parts += q if q else [C(t("sl_no_limits"), DIM)]   # 첫 응답 전이거나 API 키 사용자면 rate_limits 가 없다
 
 # ── 모델 · 디렉터리 · 컨텍스트 ──────────────────────────────────────────────
 model = (d.get("model") or {}).get("display_name") or ""

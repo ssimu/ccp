@@ -4,6 +4,9 @@
 # 권한 확인을 건너뛰려면 아래 줄의 주석을 푼다. 그만큼 위험하다 — 뜻을 알고 켤 것.
 # CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 
+# 표시 언어. 비우면 터미널 로케일(LANG)을 따른다: ko/ja/zh 는 그 언어, 그 외는 en.
+# CCP_LANG=ko      # ko | en | ja | zh
+
 # 프로필 디렉터리 위치를 바꾸고 싶을 때만.
 # CLAUDE_PROFILES="$HOME/.claude-profiles"
 # CODEX_PROFILES="$HOME/.codex-profiles"

@@ -135,6 +135,7 @@ python3 만 있으면 된다(jq 불필요). 이미 다른 statusline 을 쓰고 
 
 ```
 ccp.zsh                본체 — 메뉴·전환·ccp-new·ccp-sync·별칭·Tab 완성
+ccp_i18n.py            표시 문구 사전(ko/en/ja/zh). ccp_i18n.zsh 는 여기서 생성 — 손으로 고치지 않는다
 ccp_render.py          메뉴 렌더러 — 카드/표, 추천 계산, 대화형 키 입력
 ccp_codex.py           codex 사용량 (app-server JSON-RPC → TSV)
 statusline.sh          (선택) Claude Code 상태줄

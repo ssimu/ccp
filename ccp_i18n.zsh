@@ -1,0 +1,128 @@
+# 생성 파일 — 손으로 고치지 말 것. 원본은 ccp_i18n.py:  python3 ccp_i18n.py --zsh > ccp_i18n.zsh
+
+typeset -gA _CCP_MSG_ko
+_CCP_MSG_ko=(
+  default '기본'
+  z_nologin '(미로그인)'
+  z_query_fail '(조회 실패)'
+  z_querying '  사용량 조회 중… (%d개)'
+  z_tsv_header '# 도구\t이름\t별칭\t설명'
+  z_created '생성: %s %s'
+  z_sync_next '다음: ccp → 새 프로필마다 /login (codex 는 CODEX_HOME=<디렉터리> codex login)'
+  z_sync_all '프로필 전부 있음 (%s)'
+  z_alias_conflict 'ccp: 별칭 %s 은(는) 이미 있는 %s 이라 건너뜀 (%s)'
+  z_new_usage '사용법: ccp-new <프로필이름> [별칭] [설명] | ccp-new --codex <프로필이름> [별칭] [설명]'
+  z_exists '이미 있음: %s'
+  z_created_at '생성: %s\n기록: %s'
+  z_codex_next '다음: CODEX_HOME=%s codex login'
+  z_codex_ws '  (같은 ChatGPT 계정이라도 브라우저 승인 화면에서 워크스페이스를 골라야 한다)'
+  z_claude_next '다음: ccp %s → /login'
+  z_name_dup '이름이 겹친다: %s — claude:%s / codex:%s 처럼 도구를 붙여라'
+  z_no_profiles '프로필 없음. ccp-new <이름>'
+  z_quit '  q) 종료'
+  z_select_rec '선택 [0-%d, q]  (엔터 = 추천 %s) %s: '
+  z_select '선택 [0-%d, q]: '
+  z_out_of_range '범위 밖: %s'
+  z_not_found '프로필 '\''%s'\'' 없음. ccp-new %s'
+  z_warn_session '  ⏳ 세션 한도 소진 상태다 — 곧 풀리지만 지금은 막힐 수 있다.'
+  z_warn_weekly '  ✕ 주간 한도 소진 상태다 — 지금은 못 쓴다.'
+  z_warn_nologin '  ✕ 미로그인/조회 실패 — /login 이 필요할 수 있다.'
+  z_no_dir '프로필 디렉터리 없음: %s'
+)
+typeset -gA _CCP_MSG_en
+_CCP_MSG_en=(
+  default 'default'
+  z_nologin '(not logged in)'
+  z_query_fail '(lookup failed)'
+  z_querying '  checking usage… (%d)'
+  z_tsv_header '# tool\tname\talias\tnote'
+  z_created 'created: %s %s'
+  z_sync_next 'next: ccp → /login in each new profile (codex: CODEX_HOME=<dir> codex login)'
+  z_sync_all 'all profiles present (%s)'
+  z_alias_conflict 'ccp: alias %s skipped — already a %s (%s)'
+  z_new_usage 'usage: ccp-new <name> [alias] [note] | ccp-new --codex <name> [alias] [note]'
+  z_exists 'already exists: %s'
+  z_created_at 'created: %s\nrecorded in: %s'
+  z_codex_next 'next: CODEX_HOME=%s codex login'
+  z_codex_ws '  (even with the same ChatGPT login, pick the workspace on the browser approval screen)'
+  z_claude_next 'next: ccp %s → /login'
+  z_name_dup 'ambiguous name: %s — prefix the tool, e.g. claude:%s / codex:%s'
+  z_no_profiles 'no profiles. ccp-new <name>'
+  z_quit '  q) quit'
+  z_select_rec 'select [0-%d, q]  (Enter = recommended %s) %s: '
+  z_select 'select [0-%d, q]: '
+  z_out_of_range 'out of range: %s'
+  z_not_found 'profile '\''%s'\'' not found. ccp-new %s'
+  z_warn_session '  ⏳ session quota exhausted — frees soon, but may be blocked right now.'
+  z_warn_weekly '  ✕ weekly quota exhausted — unusable for now.'
+  z_warn_nologin '  ✕ not logged in / lookup failed — you may need /login.'
+  z_no_dir 'profile directory missing: %s'
+)
+typeset -gA _CCP_MSG_ja
+_CCP_MSG_ja=(
+  default 'デフォルト'
+  z_nologin '(未ログイン)'
+  z_query_fail '(取得失敗)'
+  z_querying '  使用量を取得中… (%d件)'
+  z_tsv_header '# ツール\t名前\t別名\tメモ'
+  z_created '作成: %s %s'
+  z_sync_next '次: ccp → 新しいプロファイルごとに /login (codex は CODEX_HOME=<dir> codex login)'
+  z_sync_all 'プロファイルはすべて存在 (%s)'
+  z_alias_conflict 'ccp: 別名 %s は既存の %s のためスキップ (%s)'
+  z_new_usage '使い方: ccp-new <名前> [別名] [メモ] | ccp-new --codex <名前> [別名] [メモ]'
+  z_exists '既に存在: %s'
+  z_created_at '作成: %s\n記録: %s'
+  z_codex_next '次: CODEX_HOME=%s codex login'
+  z_codex_ws '  (同じ ChatGPT アカウントでも、ブラウザの承認画面でワークスペースを選ぶ)'
+  z_claude_next '次: ccp %s → /login'
+  z_name_dup '名前が重複: %s — claude:%s / codex:%s のようにツールを付ける'
+  z_no_profiles 'プロファイルがない。ccp-new <名前>'
+  z_quit '  q) 終了'
+  z_select_rec '選択 [0-%d, q]  (Enter = おすすめ %s) %s: '
+  z_select '選択 [0-%d, q]: '
+  z_out_of_range '範囲外: %s'
+  z_not_found 'プロファイル '\''%s'\'' がない。ccp-new %s'
+  z_warn_session '  ⏳ セッション上限に達している — まもなく復活するが今は弾かれることがある。'
+  z_warn_weekly '  ✕ 週間上限に達している — 今は使えない。'
+  z_warn_nologin '  ✕ 未ログイン/取得失敗 — /login が必要かもしれない。'
+  z_no_dir 'プロファイルのディレクトリがない: %s'
+)
+typeset -gA _CCP_MSG_zh
+_CCP_MSG_zh=(
+  default '默认'
+  z_nologin '(未登录)'
+  z_query_fail '(查询失败)'
+  z_querying '  正在查询用量… (%d 个)'
+  z_tsv_header '# 工具\t名称\t别名\t备注'
+  z_created '已创建: %s %s'
+  z_sync_next '下一步: ccp → 在每个新配置里 /login (codex: CODEX_HOME=<目录> codex login)'
+  z_sync_all '所有配置均已存在 (%s)'
+  z_alias_conflict 'ccp: 别名 %s 已是现有的 %s，跳过 (%s)'
+  z_new_usage '用法: ccp-new <名称> [别名] [备注] | ccp-new --codex <名称> [别名] [备注]'
+  z_exists '已存在: %s'
+  z_created_at '已创建: %s\n已记录: %s'
+  z_codex_next '下一步: CODEX_HOME=%s codex login'
+  z_codex_ws '  (即使是同一个 ChatGPT 账号，也要在浏览器授权页选择工作区)'
+  z_claude_next '下一步: ccp %s → /login'
+  z_name_dup '名称重复: %s — 请加上工具前缀，如 claude:%s / codex:%s'
+  z_no_profiles '没有配置。ccp-new <名称>'
+  z_quit '  q) 退出'
+  z_select_rec '选择 [0-%d, q]  (Enter = 推荐 %s) %s: '
+  z_select '选择 [0-%d, q]: '
+  z_out_of_range '超出范围: %s'
+  z_not_found '找不到配置 '\''%s'\''。ccp-new %s'
+  z_warn_session '  ⏳ 会话额度已用尽 — 很快恢复，但现在可能被拒。'
+  z_warn_weekly '  ✕ 周额度已用尽 — 现在无法使用。'
+  z_warn_nologin '  ✕ 未登录/查询失败 — 可能需要 /login。'
+  z_no_dir '配置目录不存在: %s'
+)
+
+# _ccp_t <키> [printf 인자...] — 현재 CCP_LANG 의 문구를 printf 형식으로 채워 낸다(줄바꿈 없음).
+_ccp_t() {
+  local key="$1"; shift
+  local ref="_CCP_MSG_${CCP_LANG:-en}[${key}]"
+  local fmt="${(P)ref}"
+  [[ -z "$fmt" ]] && { ref="_CCP_MSG_en[${key}]"; fmt="${(P)ref}"; }
+  printf -- "$fmt" "$@"
+}
+_ccp_tl() { _ccp_t "$@"; printf '\n'; }   # 줄바꿈 붙인 판

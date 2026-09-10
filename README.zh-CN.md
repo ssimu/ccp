@@ -18,8 +18,6 @@
 
 输入 `ccp` 出现这个界面，直接按 Enter 就用当前最宽裕的账号启动。
 
-> 菜单文字目前是韩文。下面的命令在任何语言环境下都一样。
-
 ## 开始
 
 需要：macOS 或 Linux、zsh（macOS 默认）、python3（macOS 自带）、已安装的 Claude Code。
@@ -113,6 +111,10 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 **菜单要等几秒才出来。**
 那是在查询每个账号的剩余额度：每个约 3 秒，并行执行，总时间也差不多。
 不调用模型，不消耗 token。
+
+**想换菜单语言。**
+菜单、提示信息和状态栏支持 中文、English、한국어、日本語。默认跟随终端语言环境（`LANG`），
+在 `~/.config/ccp/config.zsh` 里写 `CCP_LANG=zh` 可固定；只想临时切换用 `CCP_LANG=en ccp`。
 
 **我已经有状态栏了。**
 用 `install.sh --no-statusline` 安装就不会改动它。

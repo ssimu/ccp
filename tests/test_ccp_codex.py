@@ -1,6 +1,8 @@
 """ccp 의 codex 사용량 파서 — app-server 응답을 ccp 렌더러 TSV 로 옮기는 부분."""
-import sys, time
+import os, sys, time
 from pathlib import Path
+
+os.environ["CCP_LANG"] = "ko"   # 기대 문구가 한국어다. 언어별 문구는 test_i18n 이 본다
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ccp_codex  # noqa: E402

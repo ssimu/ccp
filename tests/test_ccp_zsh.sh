@@ -7,6 +7,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 
 export HOME="$T/home" XDG_CONFIG_HOME="$T/cfg" PATH="$T/bin:$PATH"
 unset CCP_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME CLAUDE_PROFILES CODEX_PROFILES
+export CCP_LANG=ko   # 아래 기대 문구는 한국어. 언어 전환은 마지막 절에서 따로 본다
 mkdir -p "$HOME/.claude/skills" "$HOME/.claude/plugins" "$HOME/.claude/commands" "$HOME/.claude/projects" \
          "$HOME/.codex/skills" "$T/bin" "$XDG_CONFIG_HOME/ccp"
 echo '{}' > "$HOME/.claude/settings.json"; : > "$HOME/.codex/config.toml"
@@ -86,6 +87,24 @@ printf 'CCP_CLAUDE_ARGS=(--dangerously-skip-permissions --model opus)\n' > "$XDG
 out="$(run 'ccp team')"
 check "CCP_CLAUDE_ARGS 가 claude 인자 앞에 붙는다" "$out" "args=--dangerously-skip-permissions --model opus"
 rm "$XDG_CONFIG_HOME/ccp/config.zsh"
+
+print "언어"
+out="$(CCP_LANG=en run 'ccp nope')"
+check "CCP_LANG=en 이면 영어 메시지" "$out" "profile 'nope' not found"
+out="$(CCP_LANG=ja run 'ccp nope')"
+check "CCP_LANG=ja 이면 일본어 메시지" "$out" "プロファイル 'nope' がない"
+out="$(CCP_LANG=zh run 'ccp-sync')"
+check "CCP_LANG=zh 이면 중국어 메시지" "$out" "所有配置均已存在"
+out="$(CCP_LANG=en run 'ccp claude:default')"
+check "en 에서 기본 프로필 이름은 default" "$out" "CLAUDE_CONFIG_DIR=<unset>"
+out="$(CCP_LANG=en run 'ccp claude:기본')"
+check "언어가 en 이어도 '기본' 으로 기본 프로필을 부를 수 있다" "$out" "CLAUDE_CONFIG_DIR=<unset>"
+out="$(CCP_LANG=ko run 'ccp claude:default')"
+check "언어가 ko 여도 'default' 로 부를 수 있다" "$out" "CLAUDE_CONFIG_DIR=<unset>"
+out="$(env -u CCP_LANG LANG=ja_JP.UTF-8 zsh -c "source '$REPO/ccp.zsh'; echo LANG=\$CCP_LANG")"
+check "CCP_LANG 이 없으면 로케일에서 정한다 (ja_JP → ja)" "$out" "LANG=ja"
+out="$(env -u CCP_LANG LANG=de_DE.UTF-8 zsh -c "source '$REPO/ccp.zsh'; echo LANG=\$CCP_LANG")"
+check "모르는 로케일은 en" "$out" "LANG=en"
 
 print "예전 3칸 TSV 호환"
 printf 'old\tcco\t설명\n' > "$TSV"

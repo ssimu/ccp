@@ -19,6 +19,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ccp_i18n import t   # 표시 문구
+
 FIELDS = 12
 SESSION_MAX_MINS = 1440   # 이 이하 창은 '세션', 넘으면 '주간'. primary/secondary 위치는 요금제마다 다르다.
 
@@ -67,12 +70,12 @@ def to_tsv(account, ratelimits, now=None):
     notes = [account.get("planType")] if account.get("planType") else []
     credits = rl.get("credits") or {}
     if (rl.get("rateLimitReachedType") or "").endswith("credits_depleted") and not credits.get("unlimited"):
-        notes.append("크레딧 소진")
+        notes.append(t("cx_credits"))
     if rl.get("spendControlReached"):
-        notes.append("지출 한도")
+        notes.append(t("cx_spend"))
     tickets = ((ratelimits or {}).get("rateLimitResetCredits") or {}).get("availableCount") or 0
     if tickets:
-        notes.append(f"리셋권 {tickets}")
+        notes.append(t("cx_tickets", n=tickets))
     out[11] = " · ".join(notes)
     return "\t".join(out)
 
@@ -138,10 +141,10 @@ def probe(codex_home):
 def who(codex_home):
     """ccp-ls 용 한 줄: 이메일 + 요금제."""
     if not os.path.exists(os.path.join(codex_home, "auth.json")):
-        return "(미로그인)"
+        return t("z_nologin")
     account, _ = _rpc(codex_home)
     if not account:
-        return "(조회 실패)"
+        return t("z_query_fail")
     return f"{account.get('email') or '?'}  {account.get('planType') or ''}".rstrip()
 
 
