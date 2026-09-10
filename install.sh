@@ -2,14 +2,14 @@
 # ccp 설치 — 멱등. 몇 번 돌려도 같은 결과.
 #
 #   git clone https://github.com/ssimu/ccp.git ~/projects/ccp
-#   ~/projects/ccp/install.sh              # ccp 만
-#   ~/projects/ccp/install.sh --statusline # + Claude Code 상태줄에 현재 계정 표시
+#   ~/projects/ccp/install.sh                 # ccp + Claude Code 상태줄(현재 계정·남은 한도)
+#   ~/projects/ccp/install.sh --no-statusline # 상태줄은 건드리지 않음
 #
 # 하는 일:
 #   1. ~/.zshrc 에 ccp.zsh 를 source 하는 한 줄 (clone 한 위치를 그대로 쓴다)
 #   2. ~/.config/ccp/{profiles.tsv,config.zsh} 를 예시에서 복사 (이미 있으면 그대로 둠)
 #   3. profiles.tsv 대로 프로필 디렉터리 생성 (ccp-sync)
-#   4. --statusline 이면 ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정
+#   4. ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정 (--no-statusline 이면 건너뜀)
 # 로그인(/login)은 프로필마다 사람이 직접 한다 — 토큰은 어디에도 복사하지 않는다.
 set -u
 
@@ -17,12 +17,13 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG="${CCP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ccp}"
 ZRC="${ZDOTDIR:-$HOME}/.zshrc"
 CC="$HOME/.claude"
-STATUSLINE=0
+STATUSLINE=1
 NOTES=()
 
 for a in "$@"; do
     case "$a" in
-        --statusline) STATUSLINE=1 ;;
+        --statusline) STATUSLINE=1 ;;     # 기본값. 예전 호출과의 호환용
+        --no-statusline) STATUSLINE=0 ;;
         -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
         *) printf '모르는 옵션: %s\n' "$a" >&2; exit 1 ;;
     esac
@@ -79,7 +80,6 @@ fi
 
 step "4/4  statusline"
 if [ "$STATUSLINE" = 1 ]; then
-    command -v jq >/dev/null 2>&1 || note "jq 가 없다. statusline.sh 가 jq 로 JSON 을 읽는다 — brew install jq"
     mkdir -p "$CC"
     dst="$CC/statusline-command.sh"
     if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DIR/statusline.sh" ]; then ok "statusline-command.sh (이미 연결됨)"
@@ -105,7 +105,7 @@ else:
     print("  ✓ settings.json statusLine 설정" + (f" (이전 값: {json.dumps(prev, ensure_ascii=False)})" if prev else ""))
 PY
 else
-    ok "건너뜀 (--statusline 을 주면 Claude Code 상태줄에 '프로필:계정' 이 뜬다)"
+    ok "건너뜀 (--no-statusline)"
 fi
 
 printf '\n─────────────────────────────────────────────\n'
