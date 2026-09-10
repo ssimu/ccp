@@ -94,6 +94,14 @@ team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █
 No. History, settings and skills are shared by all accounts; only the login differs.
 When a quota runs out, `ccp team -c` on another account continues the same conversation. That is the main use case.
 
+**Does checking the quota cost credits or tokens?**
+No. None of the three paths calls a model.
+- Status line: it only reads the `rate_limits` values Claude Code already hands to the status line script. No request is made.
+- Claude accounts in the menu: `claude -p /usage`. `/usage` is a built-in command that queries the usage API and sends nothing to the model.
+  Its JSON output confirms it: 0 model turns, 0 USD, 0 input and output tokens.
+- Codex accounts in the menu: two read-only requests to `codex app-server` (account and rate limits).
+The few seconds before the menu appears are network round trips; they do not count against your quota.
+
 **I want more (or fewer) accounts.**
 Add or remove lines in `profiles.tsv`, then `ccp-sync`. To also remove the folder of a deleted account: `rm -rf ~/.claude-profiles/<name>`.
 Only that account's login goes away; the history stays.
@@ -109,8 +117,7 @@ If the `codex` command exists, it appears in the menu automatically. For several
 put `codex` in the tool column: `codex	work	cxw	company workspace`
 
 **The menu takes a few seconds.**
-That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same.
-No model is called, so it costs no tokens.
+That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same. As noted above, it costs no credits.
 
 **Can I change the menu language?**
 Menu, messages and status line come in English, 한국어, 日本語 and 中文. The default follows your terminal locale (`LANG`);
