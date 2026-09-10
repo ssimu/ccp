@@ -85,7 +85,7 @@ def test_렌더러가_네_언어로_돈다():
 
 
 def test_statusline_이_네_언어로_돈다():
-    want = {"ko": "주간", "en": "weekly", "ja": "週間", "zh": "本周"}
+    want = {"ko": "주 ", "en": "wk ", "ja": "週 ", "zh": "周 "}
     payload = '{"rate_limits":{"seven_day":{"used_percentage":21,"resets_at":%d},"five_hour":{"used_percentage":12,"resets_at":%d}}}' % (
         time.time() + 90000, time.time() + 600)
     for lang in ccp_i18n.LANGS:

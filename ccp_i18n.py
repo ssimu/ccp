@@ -33,6 +33,8 @@ M = {
     "weekly":         ("주간", "weekly", "週間", "本周"),
     "session":        ("세션", "session", "セッション", "会话"),
     "model":          ("모델", "model", "モデル", "模型"),
+    "weekly_short":   ("주", "wk", "週", "周"),        # 상태줄 짧은 라벨
+    "session_short":  ("5h", "5h", "5h", "5h"),
     "nologin":        ("미로그인", "not logged in", "未ログイン", "未登录"),
     "query_fail":     ("조회 실패", "lookup failed", "取得失敗", "查询失败"),
     "soon":           ("곧", "soon", "まもなく", "即将"),

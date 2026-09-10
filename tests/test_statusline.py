@@ -38,7 +38,7 @@ def plain(s):
 def test_기본값():
     # 주간: 남은 2일3시간/7일 → 경과 0.69 → 눈금 6번째 칸. 사용 38% → 4칸 채움.  세션: 남은 100/300분 → 경과 0.67 → 6번째. 12% → 1칸.
     out = plain(run())
-    assert out.startswith("nonexistent:미로그인 │ Opus │ 주간 ████░░┃░░░ 38% │ 세션 █░░░░░┃░░░ 12% │ ~/proj │ ctx 12%")
+    assert out.startswith("nonexistent:미로그인 │ Opus │ 주 ██░░┃░ 38%  5h █░░░┃░ 12% │ ~/proj │ ctx 12%")
 
 
 def test_리셋_시간은_켜면_보인다():
@@ -46,15 +46,20 @@ def test_리셋_시간은_켜면_보인다():
     assert out.endswith("38% ↻2일3시간")
 
 
+def test_긴_라벨과_구분자():
+    out = plain(run("segments = quota\nlabels = full\nquota_separator = ' │ '\nbar = 0\n"))
+    assert out == "주간 38% │ 세션 12%"
+
+
 def test_눈금을_끄면_막대만():
     out = plain(run("segments = weekly\nbar_tick = no\n"))
-    assert out == "주간 ████░░░░░░ 38%"
+    assert out == "주 ██░░░░ 38%"
 
 
 def test_눈금은_리셋_직전이면_오른쪽_끝():
     p = json.loads(PAYLOAD); p["rate_limits"]["seven_day"]["resets_at"] = NOW + 60
     out = plain(run("segments = weekly\n", json.dumps(p)))
-    assert out == "주간 ████░░░░░┃ 38%"
+    assert out == "주 ██░░░┃ 38%"
 
 
 CACHE = "25\t5580\t48\t190\tFable\t47\tok\t09/14 15:00\t09/10 21:10\t10080\t300\t"
@@ -62,7 +67,7 @@ CACHE = "25\t5580\t48\t190\tFable\t47\tok\t09/14 15:00\t09/10 21:10\t10080\t300\
 
 def test_모델_전용_한도는_캐시에서():
     out = plain(run("segments = quota\nbar_tick = no\nshow_reset = yes\n", cache=CACHE))
-    assert "Fable █████░░░░░ 47% ↻3일21시간" in out and not out.endswith("~")
+    assert "Fable ███░░░ 47% ↻3일21시간" in out and not out.endswith("~")
 
 
 def test_낡은_캐시는_물결표():
@@ -78,12 +83,12 @@ def test_신선한_캐시는_지난_시간을_빼고_리셋을_보인다():
 
 def test_캐시가_없으면_모델_조각은_빠진다():
     out = plain(run("segments = quota\n"))
-    assert "Fable" not in out and out.startswith("주간")
+    assert "Fable" not in out and out.startswith("주 ")
 
 
 def test_모델_한도가_없는_계정은_조각_없음():
     out = plain(run("segments = quota\n", cache="5\t100\t1\t10\t\t\tok\t\t\t10080\t300\t"))
-    assert out.count("│") == 1
+    assert "Fable" not in out and out.count("%") == 2
 
 
 def test_segments_순서와_선택():
@@ -97,17 +102,17 @@ def test_separator():
 
 def test_막대_없이_숫자만():
     out = plain(run("segments = weekly\nbar = 0\n"))
-    assert out == "주간 38%"
+    assert out == "주 38%"
 
 
 def test_막대_글자와_폭():
     out = plain(run("segments = weekly\nbar = 5\nbar_chars = '#-'\nbar_tick = no\n"))
-    assert out == "주간 ##--- 38%"
+    assert out == "주 ##--- 38%"
 
 
 def test_남은_비율():
     out = plain(run("segments = weekly session\npercent = left\nbar = 0\nshow_reset = no\n"))
-    assert out == "주간 62% │ 세션 88%"
+    assert out == "주 62% │ 5h 88%"
 
 
 def test_계정_형식():
@@ -121,7 +126,7 @@ def test_계정_형식():
 
 def test_format_틀():
     out = plain(run('format = "[{model}] {weekly} / {ctx}"\nbar = 0\nshow_reset = no\n'))
-    assert out == "[Opus] 주간 38% / ctx 12%"
+    assert out == "[Opus] 주 38% / ctx 12%"
 
 
 def test_format_틀_오류는_죽지_않고_알려준다():
@@ -145,12 +150,13 @@ def test_dir_모드():
 
 def test_언어를_설정에서만_바꾼다():
     out = plain(run("segments = weekly\nlang = en\nbar = 0\nshow_reset = no\n", lang="ko"))
-    assert out == "weekly 38%"
+    assert out == "wk 38%"
 
 
 def test_rate_limits_없으면_안내():
     p = json.loads(PAYLOAD); del p["rate_limits"]
     assert "한도 조회 전" in plain(run("segments = quota\n", json.dumps(p)))
+    assert "주" in plain(run("segments = quota\n"))
 
 
 def test_사용자_스크립트가_있으면_그것을_실행():
@@ -170,11 +176,11 @@ def test_CCP_LANG_이_없으면_config_zsh_에서_읽는다():
         env = {k: v for k, v in os.environ.items() if k != "CCP_LANG"}
         env.update(CCP_CONFIG_DIR=cfg, CLAUDE_CONFIG_DIR="/nonexistent", LANG="en_US.UTF-8")
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=PAYLOAD, capture_output=True, text=True, env=env)
-        assert plain(r.stdout) == "週間 38%", r.stdout
+        assert plain(r.stdout) == "週 38%", r.stdout
 
 
 def test_설정_파일이_없어도_기본으로_돈다():
     with tempfile.TemporaryDirectory() as cfg:
         env = dict(os.environ, CCP_CONFIG_DIR=cfg, CCP_LANG="ko", CLAUDE_CONFIG_DIR="/nonexistent", CCP_STATUSLINE_TEST_NO_BG="1")
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=PAYLOAD, capture_output=True, text=True, env=env)
-        assert "주간" in plain(r.stdout)
+        assert "주 " in plain(r.stdout)

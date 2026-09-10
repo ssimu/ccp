@@ -53,7 +53,7 @@ All user state lives outside the repo: `~/.config/ccp/` (settings, menu view), `
 ## Status line (optional)
 
 `install.sh` (unless `--no-statusline`) links `statusline.sh` to `~/.claude/statusline-command.sh` and points `statusLine` in `~/.claude/settings.json` at it.
-Claude Code then shows `team:me@example.com │ Opus │ 주간 ████░░┃░░░ 38% │ 세션 █░░░░░┃░░░ 12% │ Fable █████░┃░░░ 47% │ ~/proj │ ctx 12% │ git main`.
+Claude Code then shows `team:me@example.com │ Opus │ 주 ██░░┃░ 38%  5h █░░░┃░ 12%  Fable ███┃░░ 47% │ ~/proj │ ctx 12% │ git main`.
 `주간` is the weekly window and `세션` the 5-hour window, each as used %, a 5-cell bar and `↻` time until reset. The numbers come from the `rate_limits`
 object Claude Code passes to the status line command (Pro/Max subscriptions, after the first response), so nothing extra is queried and no tokens are spent.
 Colors: yellow from 70% used, red from 90%, bold red at 100% — the same thresholds as the ccp menu. The account email is read from the profile's `.claude.json`.

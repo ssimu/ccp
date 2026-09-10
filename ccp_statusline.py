@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code 상태줄 — 현재 계정과 남은 한도를 항상 보인다. 무엇을 어떻게 보일지는 statusline.conf 로 정한다.
 
-  team:me@example.com │ Fable 5.1 │ 주간 ██░░░┃░░░░ 21% │ 세션 ██░░░░░░┃░ 16% │ Fable █████┃░░░░ 47% │ ~/proj │ ctx 22% │ git main [*2]
+  team:me@example.com │ Fable 5.1 │ 주 █░░┃░░ 21%  5h █░░░┃░ 16%  Fable ███┃░░ 47% │ ~/proj │ ctx 22% │ git main [*2]
 
 입력: Claude Code 가 stdin 으로 주는 JSON. 한도는 rate_limits(five_hour / seven_day, 첫 응답 뒤부터)에서 읽으므로
       /usage 를 따로 부르지 않는다 — 렌더마다 비용이 없다. 계정 이메일은 rate_limits 에 없어 프로필의 .claude.json 에서 읽는다.
@@ -27,10 +27,12 @@ DEFAULTS = {
     "separator":  " │ ",
     "account":    "{profile}:{email}",
     "quota":      "weekly session model",   # model = Fable 같은 모델 전용 주간 한도 (ccp 캐시에서)
+    "quota_separator": "  ",          # 한도 조각들 사이. 조각 구분자(│)보다 가볍게 붙여 폭을 줄인다
+    "labels":     "short",            # short(주 · 5h) | full(주간 · 세션)
     "model_quota_ttl": "10",          # 캐시가 이보다 오래(분)됐으면 백그라운드로 다시 조회
     "model_quota_bg":  "yes",         # no 면 캐시만 읽고 조회는 ccp 메뉴에 맡긴다
     "percent":    "used",             # used | left
-    "bar":        "10",               # 막대 칸 수. 0 = 막대 없음
+    "bar":        "6",                # 막대 칸 수. 0 = 막대 없음
     "bar_chars":  "█░",
     "bar_tick":   "yes",              # 막대 안에 지금 위치(┃). 오른쪽 끝에 붙을수록 리셋 임박 — ccp 메뉴와 같다
     "show_reset": "no",               # ↻ 리셋까지 남은 시간. 상태줄엔 마우스 오버가 없어 켜거나 끄거나 둘 중 하나
@@ -176,12 +178,16 @@ def quota_one(label, w, window_min):
     return s
 
 
+def _label(full_key, short_key):
+    return t(short_key) if CONF["labels"].lower() == "short" else t(full_key)
+
+
 def seg_weekly():
-    return quota_one(t("weekly"), (d.get("rate_limits") or {}).get("seven_day"), 7 * 1440)
+    return quota_one(_label("weekly", "weekly_short"), (d.get("rate_limits") or {}).get("seven_day"), 7 * 1440)
 
 
 def seg_session():
-    return quota_one(t("session"), (d.get("rate_limits") or {}).get("five_hour"), 300)
+    return quota_one(_label("session", "session_short"), (d.get("rate_limits") or {}).get("five_hour"), 300)
 
 
 def _profile_dir():
@@ -238,7 +244,7 @@ def seg_quota():
         f = {"weekly": seg_weekly, "session": seg_session, "model": seg_model_quota}.get(w)
         s = f() if f else None
         if s: parts.append(s)
-    return CONF["separator"].join(parts) if parts else C(t("sl_no_limits"), DIM)
+    return CONF["quota_separator"].join(parts) if parts else C(t("sl_no_limits"), DIM)
 
 
 def seg_model():
