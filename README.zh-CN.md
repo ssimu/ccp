@@ -83,7 +83,7 @@ ccp
 Claude Code 底部状态栏始终显示当前账号和剩余额度。
 
 ```
-team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12% │ git main
+team:me@example.com │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Fable ██░░░ 47% ↻2일3시간 │ ~/proj │ ctx 12% │ git main
 ```
 
 `주간` 是本周窗口，`세션` 是 5 小时窗口，`↻` 是距重置的时间。70% 起变黄，90% 起变红。

@@ -37,7 +37,7 @@ def plain(s):
 
 def test_기본값():
     out = plain(run())
-    assert out.startswith("nonexistent:미로그인 │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12%")
+    assert out.startswith("nonexistent:미로그인 │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ ~/proj │ ctx 12%")
 
 
 CACHE = "25\t5580\t48\t190\tFable\t47\tok\t09/14 15:00\t09/10 21:10\t10080\t300\t"

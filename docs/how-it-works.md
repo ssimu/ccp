@@ -124,7 +124,7 @@ Codex 는 `codex app-server` 의 JSON-RPC 로 읽는다(1초, 토큰 0).
 
 `install.sh` 는(`--no-statusline` 이 아니면) `statusline.sh` 를 `~/.claude/statusline-command.sh` 로 링크하고 `~/.claude/settings.json` 의
 `statusLine` 을 그쪽으로 잡는다. Claude Code 하단에
-`team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12% │ git main` 처럼 뜬다.
+`team:me@example.com │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Fable ██░░░ 47% ↻2일3시간 │ ~/proj │ ctx 12% │ git main` 처럼 뜬다.
 어느 계정으로 대화 중인지, 한도가 얼마 남았는지 늘 보여야 하기 때문이다.
 `주간` 은 7일 창, `세션` 은 5시간 창의 사용률·막대·`↻` 리셋까지 남은 시간이다. 수치는 Claude Code 가 상태줄 명령의 stdin JSON 으로 넘겨주는
 `rate_limits`(Pro/Max 구독, 첫 응답 뒤부터)에서 읽으므로 따로 조회하지 않고 토큰도 들지 않는다.

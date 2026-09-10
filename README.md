@@ -83,7 +83,7 @@ ccp
 Claude Code 하단 상태줄에는 현재 계정과 남은 한도가 항상 표시됩니다.
 
 ```
-team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12% │ git main
+team:me@example.com │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Fable ██░░░ 47% ↻2일3시간 │ ~/proj │ ctx 12% │ git main
 ```
 
 70%부터 노랑, 90%부터 빨강으로 바뀝니다.

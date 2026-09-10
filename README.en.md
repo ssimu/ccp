@@ -83,7 +83,7 @@ In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` to
 The status line at the bottom of Claude Code always shows the current account and remaining quota.
 
 ```
-team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12% │ git main
+team:me@example.com │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Fable ██░░░ 47% ↻2일3시간 │ ~/proj │ ctx 12% │ git main
 ```
 
 `주간` is the weekly window, `세션` the 5-hour one, `↻` the time until reset. Yellow from 70% used, red from 90%.
