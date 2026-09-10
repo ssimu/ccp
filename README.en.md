@@ -2,11 +2,10 @@
 
 # ccp
 
-Hi. ccp is a small tool I built after getting tired of juggling several Claude Code accounts.
+A zsh tool for switching between several Claude Code accounts without logging out and back in.
 
-You know the moment: you are deep in a task on your work account, the quota runs out, and you would love to hop over
-to your personal account. But `/logout`, `/login`, browser approval… and by then the thread of the conversation is gone.
-So I made something that **switches accounts while keeping the conversation, and shows how much each account has left at a glance.**
+When one account hits its quota you move to another, and **conversation history, settings and skills carry over**.
+One screen shows how much each account has left. Codex CLI accounts appear in the same menu.
 
 ```
   Claude
@@ -17,15 +16,13 @@ So I made something that **switches accounts while keeping the conversation, and
     1) personal   ⏳ session exhausted — 2h12m to go
 ```
 
-Type `ccp`, this screen appears, and hitting Enter opens the account with the most room right now.
-If you use Codex CLI, those accounts show up on the same screen.
+Type `ccp` to get this screen; Enter alone opens the account with the most room right now.
 
-> One honest note: the menu text is in Korean for now. Everything below works the same regardless of your locale.
+> The menu text is in Korean for now. The commands below work the same in any locale.
 
 ## Getting started
 
-You need three things: macOS or Linux, zsh (the default on macOS), and Claude Code already installed.
-python3 too, but it ships with macOS.
+Requirements: macOS or Linux, zsh (default on macOS), python3 (ships with macOS), and Claude Code already installed.
 
 Paste these three lines into a terminal.
 
@@ -35,12 +32,12 @@ git clone https://github.com/ssimu/ccp.git ~/projects/ccp
 source ~/.zshrc
 ```
 
-The installer only adds one line to `~/.zshrc` and creates a config file, so running it twice is harmless.
-It never copies login tokens anywhere. You will do that part yourself in a minute.
+The installer adds one line to `~/.zshrc` and creates a config file. Running it again is safe.
+It never copies login tokens; you log in yourself in step 3.
 
 ### 1. Write down your accounts
 
-Open `~/.config/ccp/profiles.tsv`. It comes with an example; replace it with your own.
+Open `~/.config/ccp/profiles.tsv`. It contains an example; replace it with your accounts.
 One line per account, columns separated by **tabs**.
 
 ```
@@ -49,11 +46,11 @@ claude      team        cct    work account
 claude      personal    ccm    personal account
 ```
 
-- **name** is anything you will recognize. ASCII is easiest.
-- **alias** is a short command. Typing `cct` opens that account directly. Leave it blank if you do not care.
+- **name** becomes the profile directory name. ASCII recommended.
+- **alias** is a short command: typing `cct` opens that account directly. Optional.
 - Do not list the `~/.claude` account you already use. It is always item 0, "기본" (default).
 
-Two accounts or five, just match the number of lines.
+The number of lines is the number of accounts.
 
 ### 2. Create them
 
@@ -61,7 +58,7 @@ Two accounts or five, just match the number of lines.
 ccp-sync
 ```
 
-This creates a folder for each account you listed.
+Creates a profile directory for each line in the TSV.
 
 ### 3. Log in once per account
 
@@ -69,42 +66,42 @@ This creates a folder for each account you listed.
 ccp
 ```
 
-Pick an account in the menu and Claude Code opens as that account. The first time it will say you are not logged in,
-so run `/login` there. Repeat for each account and you are done.
+Pick an account in the menu and Claude Code opens as that account. The first time it reports you are not logged in,
+so run `/login` there. Repeat for each account.
 
-## Day to day
+## Usage
 
 | Type this | And this happens |
 |---|---|
 | `ccp` | The menu. Arrow keys to choose, Enter to open. **Just Enter opens the recommended account** |
 | `ccp team` or `cct` | Straight into that account |
 | `ccp team -c` | That account, **continuing your last conversation**. This is the one you use when a quota runs out |
-| `ccp-usage` | Just peek at the remaining quota, no menu |
+| `ccp-usage` | Remaining quota only, no menu |
 | `ccp-ls` | Who is logged in where |
 | `ccp-new name alias` | One more account |
 
 In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` toggles graph and table, `q` leaves.
 
-And the status line at the bottom of Claude Code always shows which account you are on and how much is left.
+The status line at the bottom of Claude Code always shows the current account and remaining quota.
 
 ```
 team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12% │ git main
 ```
 
-`주간` is the weekly window, `세션` the 5-hour one, `↻` the time until reset. It turns yellow past 70% and red past 90%, so a glance is enough.
+`주간` is the weekly window, `세션` the 5-hour one, `↻` the time until reset. Yellow from 70% used, red from 90%.
 
-## Questions people ask
+## FAQ
 
 **Do I lose my conversation when I switch?**
-No. History, settings and skills are shared by every account. Only the login differs.
-That is why, when a quota runs out, `ccp team -c` on another account picks up right where you were. It is the whole reason this exists.
+No. History, settings and skills are shared by all accounts; only the login differs.
+When a quota runs out, `ccp team -c` on another account continues the same conversation. That is the main use case.
 
 **I want more (or fewer) accounts.**
 Add or remove lines in `profiles.tsv`, then `ccp-sync`. To also remove the folder of a deleted account: `rm -rf ~/.claude-profiles/<name>`.
 Only that account's login goes away; the history stays.
 
 **I always run with `--dangerously-skip-permissions`.**
-Open `~/.config/ccp/config.zsh` and uncomment this line. Only if you know what it does.
+Uncomment this line in `~/.config/ccp/config.zsh`. Make sure you know what the flag disables.
 ```zsh
 CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 ```
@@ -114,27 +111,27 @@ If the `codex` command exists, it appears in the menu automatically. For several
 put `codex` in the tool column: `codex	work	cxw	company workspace`
 
 **The menu takes a few seconds.**
-That is ccp asking each account how much is left. About 3 seconds per account, but asked in parallel, so the total is about the same.
-It does not call a model, so it costs no tokens.
+That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same.
+No model is called, so it costs no tokens.
 
-**I already have a status line I like.**
-Install with `install.sh --no-statusline` and yours is left alone.
+**I already have a status line.**
+Install with `install.sh --no-statusline` and it is left untouched.
 
 **My MCP servers are missing on the new account.**
-MCP settings are per account. Open that account and run `claude mcp add --scope user …` once more.
+MCP settings live in each account's `.claude.json`. Open that account and run `claude mcp add --scope user …` again.
 
-## When something is off
+## Troubleshooting
 
 - "command not found: ccp" → open a new terminal or `source ~/.zshrc`
 - Your account is not in the menu → you skipped `ccp-sync`
 - It says 미로그인 (not logged in) → `ccp <name>`, then `/login`
 - An alias does not work → it clashes with an existing command like `cp`. You get a warning when the terminal opens. Pick another name
-- Still stuck → open an issue here and include what you typed and what came back
+- Still stuck → open an issue with the command you ran and its output
 
-## Want to know more?
+## More
 
 - [How it works and what not to touch](docs/how-it-works.en.md) — what is shared, what is kept apart, and why
 - Uninstall: remove the ccp line from `~/.zshrc`, then `rm -rf ~/projects/ccp ~/.config/ccp ~/.claude-profiles ~/.codex-profiles`. Your `~/.claude` stays as it was.
 - Tests: `zsh tests/test_ccp_zsh.sh` · `python3 -m pytest tests`
 
-MIT License. Use it, change it, share it.
+MIT License
