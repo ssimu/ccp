@@ -10,7 +10,10 @@
 #   ccp-usage        프로필별 사용량만
 #   ccp-new <이름>          claude 프로필 추가 (profiles.tsv 에도 기록)
 #   ccp-new --codex <이름>  codex 프로필 추가
+#   ccp-rm [--codex] <이름>          프로필 삭제 (로그인만 사라진다. 대화 기록은 공유라 남는다)
+#   ccp-edit [--codex] <이름> [새이름] [새별칭|-]   이름·별칭 수정 (디렉터리도 옮겨 로그인 유지)
 #   ccp-sync         profiles.tsv 에 있는데 디렉터리가 없는 프로필을 만든다
+#   메뉴 안에서: a 추가 · e 수정 · d 삭제 (끝나면 메뉴로 돌아온다)
 #   ccp-statusline   상태줄 미리보기 (statusline.conf 를 고치면서 확인)
 #   claude           기본 프로필(~/.claude)
 #
@@ -197,17 +200,19 @@ _ccp_mkprofile() {
 }
 
 # TSV 의 유효한 줄만 "도구<TAB>이름<TAB>별칭<TAB>설명" 으로 낸다(주석·빈 줄 제외, 도구 생략 시 claude).
+# awk 로 가른다 — 셸의 `IFS=$'\t' read` 는 연속된 탭을 하나로 합쳐서 빈 별칭 칸이 사라지고 설명이 별칭 자리로 밀린다.
 _ccp_tsv_rows() {
   [ -f "$CCP_PROFILES_TSV" ] || return 0
-  local tool name alias desc
-  while IFS=$'\t' read -r tool name alias desc; do
-    [[ -z "$tool" || "$tool" == \#* ]] && continue
-    # 예전 3칸 형식(이름<TAB>별칭<TAB>설명) 호환: 첫 칸이 도구가 아니면 claude 로 본다.
-    if [[ "$tool" != claude && "$tool" != codex ]]; then desc="$alias"; alias="$name"; name="$tool"; tool=claude; fi
-    [[ -z "$name" ]] && continue
-    printf '%s\t%s\t%s\t%s\n' "$tool" "$name" "$alias" "$desc"
-  done < "$CCP_PROFILES_TSV"
+  awk -F'\t' '
+    /^[[:space:]]*(#|$)/ { next }
+    { t=$1; n=$2; a=$3; d=$4
+      if (t != "claude" && t != "codex") { d=a; a=n; n=t; t="claude" }   # 예전 3칸 형식(이름 별칭 설명)
+      if (n == "") next
+      printf "%s\t%s\t%s\t%s\n", t, n, a, d }' "$CCP_PROFILES_TSV"
 }
+# _ccp_tsv_rows 의 한 줄을 네 변수로. 빈 칸을 지키려고 zsh 의 (ps:\t:) 분할을 쓴다.
+#   사용: while IFS= read -r _row; do _ccp_row "$_row"; ... $_rt $_rn $_ra $_rd ...; done < <(_ccp_tsv_rows)
+_ccp_row() { local -a f; f=("${(@ps:\t:)1}"); _rt="${f[1]:-}"; _rn="${f[2]:-}"; _ra="${f[3]:-}"; _rd="${f[4]:-}"; }
 
 # TSV 에 줄을 덧붙인다(같은 도구·이름이 이미 있으면 그대로).
 _ccp_tsv_add() {
@@ -218,12 +223,99 @@ _ccp_tsv_add() {
   printf '%s\t%s\t%s\t%s\n' "$tool" "$name" "$alias" "$desc" >> "$CCP_PROFILES_TSV"
 }
 
+# TSV 에서 한 줄을 지운다(주석·다른 줄은 그대로).
+_ccp_tsv_remove() {
+  local tool="$1" name="$2"
+  [ -f "$CCP_PROFILES_TSV" ] || return 0
+  local tmpf; tmpf="$(mktemp)"
+  awk -F'\t' -v t="$tool" -v n="$name" '
+    /^[[:space:]]*(#|$)/ {print; next}
+    { tt=$1; nn=$2; if (tt!="claude" && tt!="codex") { nn=tt; tt="claude" } }   # 예전 3칸 형식
+    !(tt==t && nn==n) {print}' "$CCP_PROFILES_TSV" > "$tmpf" && mv "$tmpf" "$CCP_PROFILES_TSV"
+}
+# TSV 의 어떤 프로필의 별칭 칸.
+_ccp_tsv_alias() { _ccp_tsv_rows | awk -F'\t' -v t="$1" -v n="$2" '$1==t && $2==n{print $3; exit}' }
+
+# 프로필을 지운다: 디렉터리(그 계정의 로그인·MCP 등록) + TSV 줄 + 별칭. 대화 기록·설정은 공유라 그대로 남는다.
+#   ccp-rm [--codex] <이름> [-f]     -f 면 묻지 않는다
+ccp-rm() {
+  local tool=claude force=0 a
+  local -a rest
+  for a in "$@"; do
+    case "$a" in --codex|-x) tool=codex;; -f|--force) force=1;; *) rest+=("$a");; esac
+  done
+  local name="${rest[1]:-}"
+  [[ -z "$name" ]] && { _ccp_tl z_rm_usage >&2; return 1; }
+  [[ "$name" == default || "$name" == 기본 || "$name" == "$_CCP_DEFAULT" ]] && { _ccp_tl z_rm_default >&2; return 1; }
+  local d; [[ "$tool" == codex ]] && d="$CODEX_PROFILES/$name" || d="$CLAUDE_PROFILES/$name"
+  local in_tsv; in_tsv="$(_ccp_tsv_rows | awk -F'\t' -v t="$tool" -v n="$name" '$1==t && $2==n{print 1; exit}')"
+  [[ ! -d "$d" && -z "$in_tsv" ]] && { _ccp_tl z_rm_missing "$tool:$name" >&2; return 1; }
+  if (( ! force )); then
+    local ans; _ccp_t z_rm_confirm "$tool:$name"; read -r ans
+    [[ "$ans" == [yY]* ]] || { _ccp_tl z_cancel; return 1; }
+  fi
+  local alias_; alias_="$(_ccp_tsv_alias "$tool" "$name")"
+  [ -d "$d" ] && rm -rf "$d"
+  _ccp_tsv_remove "$tool" "$name"
+  [[ -n "$alias_" ]] && unalias "$alias_" 2>/dev/null
+  _ccp_tl z_rm_done "$tool:$name ($d)"
+}
+
+# 이름·별칭을 바꾼다. 디렉터리도 함께 옮기므로 로그인은 그대로 유지된다.
+#   ccp-edit [--codex] <이름> [새이름] [새별칭|-]     인자를 빼면 물어본다. '-' 는 별칭 없음.
+ccp-edit() {
+  local tool=claude
+  if [[ "$1" == --codex || "$1" == -x ]]; then tool=codex; shift; fi
+  local name="${1:-}" newname="${2:-}" newalias="${3:-}"
+  [[ -z "$name" ]] && { _ccp_tl z_edit_usage >&2; return 1; }
+  [[ "$name" == default || "$name" == 기본 || "$name" == "$_CCP_DEFAULT" ]] && { _ccp_tl z_rm_default >&2; return 1; }
+  local base; [[ "$tool" == codex ]] && base="$CODEX_PROFILES" || base="$CLAUDE_PROFILES"
+  local in_tsv; in_tsv="$(_ccp_tsv_rows | awk -F'\t' -v t="$tool" -v n="$name" '$1==t && $2==n{print 1; exit}')"
+  [[ ! -d "$base/$name" && -z "$in_tsv" ]] && { _ccp_tl z_rm_missing "$tool:$name" >&2; return 1; }
+  local oldalias desc; oldalias="$(_ccp_tsv_alias "$tool" "$name")"
+  desc="$(_ccp_tsv_rows | awk -F'\t' -v t="$tool" -v n="$name" '$1==t && $2==n{print $4; exit}')"
+  if [[ -z "$newname" && $# -lt 2 ]]; then _ccp_t z_edit_name "$name"; read -r newname; fi
+  [[ -z "$newname" ]] && newname="$name"
+  if [[ -z "$newalias" && $# -lt 3 ]]; then _ccp_t z_edit_alias "$oldalias"; read -r newalias; fi
+  [[ -z "$newalias" ]] && newalias="$oldalias"
+  [[ "$newalias" == - ]] && newalias=""
+  if [[ "$newname" != "$name" ]]; then
+    [[ -e "$base/$newname" ]] && { _ccp_tl z_edit_exists "$base/$newname" >&2; return 1; }
+    [ -d "$base/$name" ] && mv "$base/$name" "$base/$newname"
+  fi
+  _ccp_tsv_remove "$tool" "$name"
+  _ccp_tsv_add "$tool" "$newname" "$newalias" "$desc"
+  [[ -n "$oldalias" ]] && unalias "$oldalias" 2>/dev/null
+  [[ -n "$newalias" ]] && alias "$newalias"="ccp $tool:$newname"
+  _ccp_tl z_edit_done "$tool:$name" "$tool:$newname" "$newalias"
+}
+
+# 메뉴에서 a/e/d 를 눌렀을 때. 끝나면 ccp 가 메뉴를 다시 연다.
+_ccp_menu_action() {
+  local act="$1" tool="$2" name="$3"
+  printf '\n'
+  case "$act" in
+    add)
+      local t=claude n al de
+      if _cxp_available; then _ccp_t z_add_tool; read -r t; [[ "$t" == codex ]] || t=claude; fi
+      _ccp_t z_add_name; read -r n
+      [[ -z "$n" ]] && { _ccp_tl z_cancel; return 0; }
+      _ccp_t z_add_alias; read -r al
+      _ccp_t z_add_desc; read -r de
+      if [[ "$t" == codex ]]; then ccp-new --codex "$n" "$al" "$de"; else ccp-new "$n" "$al" "$de"; fi ;;
+    del)  if [[ "$tool" == codex ]]; then ccp-rm --codex "$name"; else ccp-rm "$name"; fi ;;
+    edit) if [[ "$tool" == codex ]]; then ccp-edit --codex "$name"; else ccp-edit "$name"; fi ;;
+  esac
+  printf '\n'; _ccp_t z_back; read -r
+}
+
 # TSV 에 있는데 디렉터리가 없는 프로필을 만든다. TSV 를 고친 뒤, 또 새 머신에서 부른다.
 ccp-sync() {
-  local tool name alias desc made=0
-  while IFS=$'\t' read -r tool name alias desc; do
-    if _ccp_mkprofile "$tool" "$name"; then
-      _ccp_tl z_created "$tool" "$name"; made=$((made+1))
+  local _row _rt _rn _ra _rd made=0
+  while IFS= read -r _row; do
+    _ccp_row "$_row"
+    if _ccp_mkprofile "$_rt" "$_rn"; then
+      _ccp_tl z_created "$_rt" "$_rn"; made=$((made+1))
     fi
   done < <(_ccp_tsv_rows)
   if (( made )); then _ccp_tl z_sync_next
@@ -233,15 +325,16 @@ ccp-sync() {
 # 단축 별칭. TSV 의 별칭 칸이 비어 있지 않은 줄마다 alias <별칭>="ccp <도구>:<이름>".
 # ('cp'·'cd' 같은 기본 명령 이름은 거부한다 — 덮어쓰면 셸이 망가진다.)
 _ccp_define_aliases() {
-  local tool name alias desc kind   # local 은 루프 밖에서 — 안에서 반복 선언하면 zsh 가 값을 출력한다
-  while IFS=$'\t' read -r tool name alias desc; do
-    [[ -z "$alias" ]] && continue
-    kind="$(whence -w -- "$alias" 2>/dev/null)"; kind="${kind##*: }"
+  local _row _rt _rn _ra _rd kind   # local 은 루프 밖에서 — 안에서 반복 선언하면 zsh 가 값을 출력한다
+  while IFS= read -r _row; do
+    _ccp_row "$_row"
+    [[ -z "$_ra" ]] && continue
+    kind="$(whence -w -- "$_ra" 2>/dev/null)"; kind="${kind##*: }"
     case "$kind" in
       ''|none|alias) ;;   # 없거나(none) 우리가 이미 만든 별칭이면 (다시) 정의한다
-      *) _ccp_tl z_alias_conflict "$alias" "$kind" "$CCP_PROFILES_TSV" >&2; continue ;;
+      *) _ccp_tl z_alias_conflict "$_ra" "$kind" "$CCP_PROFILES_TSV" >&2; continue ;;
     esac
-    alias "$alias"="ccp $tool:$name"
+    alias "$_ra"="ccp $_rt:$_rn"
   done < <(_ccp_tsv_rows)
 }
 _ccp_define_aliases
@@ -298,6 +391,15 @@ ccp() {
 
     local rec; rec=$(awk -F'\t' '$1=="rec"{print $2}' "$tmp/_meta" 2>/dev/null)
     local picked; picked=$(awk -F'\t' '$1=="sel"{print $2}' "$tmp/_meta" 2>/dev/null)
+    # 메뉴 안에서 a/e/d 를 눌렀으면 그 일을 하고 메뉴를 다시 연다.
+    local act; act=$(awk -F'\t' '$1=="act"{print $2}' "$tmp/_meta" 2>/dev/null)
+    if [[ -n "$act" ]]; then
+      local atool aname
+      atool=$(awk -F'\t' '$1=="act"{print $3}' "$tmp/_meta"); aname=$(awk -F'\t' '$1=="act"{print $4}' "$tmp/_meta")
+      rm -rf "$tmp"
+      _ccp_menu_action "$act" "$atool" "$aname"
+      ccp; return
+    fi
     if [[ -n "$picked" ]]; then
       # 터미널이면 렌더러가 화살표/숫자/Enter/Esc 로 직접 받아 sel 을 남긴다. -1 = 취소.
       [[ "$picked" == "-1" ]] && { rm -rf "$tmp"; return 0; }
@@ -312,6 +414,15 @@ ccp() {
         _ccp_t z_select $((${#_CCP_NAMES}-1))
       fi
       read -r sel
+      # a / e N / d N — 터미널이 아닐 때의 관리 동작
+      if [[ "$sel" == [aA] || "$sel" == [eEdD]\ <-> ]]; then
+        local k="${sel[1]:l}" n="${sel#* }" atool aname
+        if [[ "$k" == a ]]; then rm -rf "$tmp"; _ccp_menu_action add; ccp; return; fi
+        (( n >= 0 && n < ${#_CCP_NAMES} )) || { rm -rf "$tmp"; _ccp_tl z_out_of_range "$n" >&2; return 1; }
+        atool="${_CCP_TOOLS[$((n+1))]}"; aname="${_CCP_NAMES[$((n+1))]}"
+        [[ "$aname" == "$_CCP_DEFAULT" ]] && { rm -rf "$tmp"; _ccp_tl z_rm_default >&2; return 1; }
+        rm -rf "$tmp"; _ccp_menu_action "$([[ $k == e ]] && echo edit || echo del)" "$atool" "$aname"; ccp; return
+      fi
       # 쓸 수 있는 계정이 하나도 없으면 엔터는 그냥 종료로 둔다 — 붙일 곳이 없다.
       [[ -z "$sel" && -n "$rec" && "$rec" != "-1" ]] && sel="$rec"
     fi

@@ -77,8 +77,11 @@ so run `/login` there. Repeat for each account.
 | `ccp-usage` | Remaining quota only, no menu |
 | `ccp-ls` | Who is logged in where |
 | `ccp-new name alias` | One more account |
+| `ccp-edit name new-name new-alias` | Rename / change alias. The folder moves too, so the login is kept |
+| `ccp-rm name` | Remove an account. Only its login goes away; history stays |
 
 In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` toggles graph and table, `q` leaves.
+You can also manage accounts right there: `a` adds one, `e` on the selected line renames it or changes its alias, `d` removes it. Answer a few prompts and you are back in the menu.
 
 The status line at the bottom of Claude Code always shows the current account and remaining quota.
 
@@ -105,9 +108,12 @@ No. None of the three paths calls a model.
 - Codex accounts in the menu: two read-only requests to `codex app-server` (account and rate limits).
 The few seconds before the menu appears are network round trips; they do not count against your quota.
 
-**I want more (or fewer) accounts.**
-Add or remove lines in `profiles.tsv`, then `ccp-sync`. To also remove the folder of a deleted account: `rm -rf ~/.claude-profiles/<name>`.
-Only that account's login goes away; the history stays.
+**I want to add, remove or rename accounts.**
+Three ways, same result.
+- In the menu: `ccp` → `a` to add, select a line and `e` to edit, `d` to remove.
+- Commands: `ccp-new name alias`, `ccp-edit name new-name new-alias`, `ccp-rm name`.
+- File: edit `~/.config/ccp/profiles.tsv`, then `ccp-sync`. Folders of removed lines go with `ccp-rm` or `rm -rf ~/.claude-profiles/<name>`.
+Removing an account deletes only its login; history and settings stay. Item 0, the default, cannot be removed or renamed.
 
 **I always run with `--dangerously-skip-permissions`.**
 Uncomment this line in `~/.config/ccp/config.zsh`. Make sure you know what the flag disables.

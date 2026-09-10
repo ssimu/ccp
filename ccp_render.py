@@ -457,12 +457,14 @@ def build(hl_idx):
     tt=tbl[:1+h]+timeline_lines()+tbl[1+h:]
     return tt if len(tt)+2<=ROWS_H else tbl
 
-def write_meta(sel):
+def write_meta(sel,act=None):
     with open(os.path.join(tmp,'_meta'),'w') as f:
         for r in rows:
             f.write(f'{r["i"]}\t{r["grp"]}\n')
         f.write(f'rec\t{rec["i"] if rec else -1}\n')
         if sel is not None: f.write(f'sel\t{sel}\n')
+        # 메뉴 안 관리 동작: act\tadd  /  act\tdel\t<tool>\t<name>  /  act\tedit\t<tool>\t<name>. 실제 작업은 zsh(ccp) 가 한다.
+        if act: f.write('act\t'+'\t'.join(act)+'\n')
 
 # ── 대화형 선택 ──────────────────────────────────────────────────────────────
 # ↑↓/j/k 이동 · 숫자 키 = 그 번호로 이동 · Enter 실행 · Esc/q 취소.
@@ -492,7 +494,8 @@ def draw(k,first):
 
 fd=os.open('/dev/tty',os.O_RDWR)
 old=termios.tcgetattr(fd)
-sel=-1
+sel=-1; act=None
+DEFAULT_NAME=t('default')
 try:
     ttymod.setcbreak(fd)            # setraw 는 OPOST 까지 꺼서 출력 줄바꿈이 깨진다
     sys.stdout.write('\033[?25l'); n=draw(hl,True)
@@ -509,6 +512,10 @@ try:
         elif ch in (b'q',b'Q',b'\x03',b'\x04'): break
         elif ch in (b'k',b'K'): hl=(hl-1)%len(rows)
         elif ch in (b'j',b'J'): hl=(hl+1)%len(rows)
+        elif ch in (b'a',b'A'): act=('add',); break
+        elif ch in (b'e',b'E',b'd',b'D'):
+            if rows[hl]['name']==DEFAULT_NAME: continue        # 기본 프로필은 이름을 바꾸거나 지울 수 없다
+            act=('edit' if ch in (b'e',b'E') else 'del', rows[hl]['tool'], rows[hl]['name']); break
         elif ch in (b'v',b'V'):
             VIEW='table' if VIEW=='graph' else 'graph'
             try:
@@ -529,4 +536,4 @@ finally:
     termios.tcsetattr(fd,termios.TCSADRAIN,old)
     sys.stdout.write('\033[?25h'); sys.stdout.flush()
     os.close(fd)
-write_meta(sel)
+write_meta(sel,act)

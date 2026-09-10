@@ -24,7 +24,7 @@ TSV="$XDG_CONFIG_HOME/ccp/profiles.tsv"
 printf 'claude\tteam\tcct\t팀\nclaude\tpersonal\t\t\ncodex\twork\tcxw\t\n' > "$TSV"
 
 PASS=0; FAIL=0
-run()    { zsh -c "source '$REPO/ccp.zsh' 2>&1; $1" 2>&1 }   # 케이스마다 새 zsh — 별칭·상태가 새지 않게
+run()    { zsh -c "source '$REPO/ccp.zsh' 2>&1; $1" 2>&1 </dev/null }   # 케이스마다 새 zsh. stdin 은 닫는다 — 프롬프트(read)가 있으면 빈 답으로 지나간다
 check()  { local name="$1" got="$2" want="$3"
            if [[ "$got" == *"$want"* ]]; then PASS=$((PASS+1)); print "  ok   $name"
            else FAIL=$((FAIL+1)); print "  FAIL $name\n       기대: ...$want...\n       실제: $got"; fi }
@@ -37,6 +37,9 @@ out="$(run 'alias cct; alias cxw; alias | grep -c personal')"
 check "별칭 칸이 있는 줄은 alias 가 된다 (claude)" "$out" "cct='ccp claude:team'"
 check "별칭 칸이 있는 줄은 alias 가 된다 (codex)"  "$out" "cxw='ccp codex:work'"
 check "별칭 칸이 비면 alias 를 만들지 않는다"      "$out" $'\n0'
+printf 'claude\tnoalias\t\t개인용 설명\n' >> "$TSV"
+out="$(run 'alias 개인용 2>&1; alias | grep -c noalias')"
+check "별칭이 비고 설명만 있으면 설명을 별칭으로 착각하지 않는다" "x${out}x" "x0x"
 printf 'claude\tbad\tcp\t\n' >> "$TSV"
 out="$(run 'whence -w cp')"
 check "기존 명령과 겹치는 별칭은 거부하고 경고" "$out" "별칭 cp 은(는) 이미 있는 command"
@@ -66,6 +69,40 @@ check "TSV 에 중복 기록하지 않는다" "$(grep -c $'\textra\t' "$TSV")" "
 out="$(run 'ccp-new --codex second')"
 check "codex 프로필 생성 안내" "$out" "CODEX_HOME=$HOME/.codex-profiles/second codex login"
 check "codex 줄도 TSV 에"      "$(cat "$TSV")" $'codex\tsecond\t\t'
+
+print "ccp-rm"
+out="$(run 'ccp-rm -f extra')"
+check "삭제 메시지" "$out" "삭제: claude:extra"
+[[ ! -e "$HOME/.claude-profiles/extra" ]] && check "디렉터리가 사라진다" y y || check "디렉터리가 사라진다" n y
+check "TSV 줄도 사라진다" "$(grep -c $'\textra\t' "$TSV")" "0"
+check "다른 줄은 그대로" "$(grep -c $'^claude\tteam\t' "$TSV")" "1"
+out="$(run 'ccp-rm -f claude:기본' 2>&1; run 'ccp-rm -f 기본')"
+check "기본 프로필은 지울 수 없다" "$out" "기본 프로필(~/.claude, ~/.codex)은 지울 수 없다"
+[[ -d "$HOME/.claude" ]] && check "~/.claude 는 무사" y y || check "~/.claude 는 무사" n y
+out="$(run 'ccp-rm -f nope')"
+check "없는 프로필은 안내" "$out" "없는 프로필: claude:nope"
+out="$(run 'ccp-rm --codex -f second')"
+check "codex 프로필 삭제" "$out" "삭제: codex:second"
+out="$(printf 'n\n' | zsh -c "source '$REPO/ccp.zsh'; ccp-rm team" 2>&1)"
+check "-f 없이는 확인을 묻고 n 이면 취소" "$out" "취소"
+[[ -d "$HOME/.claude-profiles/team" ]] && check "취소하면 남아 있다" y y || check "취소하면 남아 있다" n y
+
+print "ccp-edit"
+out="$(run 'ccp-edit team team2 cc2')"
+check "이름·별칭 변경 메시지" "$out" "수정: claude:team → claude:team2 (별칭 'cc2')"
+[[ -d "$HOME/.claude-profiles/team2" && ! -e "$HOME/.claude-profiles/team" ]] && check "디렉터리가 옮겨진다(로그인 유지)" y y || check "디렉터리가 옮겨진다(로그인 유지)" n y
+check "TSV 갱신" "$(cat "$TSV")" $'claude\tteam2\tcc2\t팀'
+check "옛 줄 제거" "$(grep -c $'\tteam\t' "$TSV")" "0"
+out="$(run 'alias cc2; alias cct 2>&1')"
+check "새 별칭이 생기고 옛 별칭은 없다" "$out" "cc2='ccp claude:team2'"
+checkno "옛 별칭은 없다" "$out" "cct='ccp"
+out="$(run 'ccp-edit team2 team2 -')"
+check "'-' 는 별칭 제거" "$(cat "$TSV")" $'claude\tteam2\t\t팀'
+out="$(run 'ccp-edit team2 personal')"
+check "이미 있는 이름으로는 못 바꾼다" "$out" "이미 있는 이름"
+out="$(printf '\n\n' | zsh -c "source '$REPO/ccp.zsh'; ccp-edit team2" 2>&1)"
+check "인자 없이 Enter 만 치면 그대로" "$out" "수정: claude:team2 → claude:team2 (별칭 '')"
+run 'ccp-edit team2 team cct' >/dev/null   # 아래 테스트가 기대하는 상태로 되돌린다
 
 print "ccp 실행"
 out="$(run 'ccp team --foo bar')"
