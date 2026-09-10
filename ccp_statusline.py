@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code 상태줄 — 현재 계정과 남은 한도를 항상 보인다. 무엇을 어떻게 보일지는 statusline.conf 로 정한다.
 
-  team:me@example.com │ Fable 5.1 │ 주간 ██░░░ 21% ↻3일22시간 │ 세션 █░░░░ 16% ↻4시간34분 │ Fable ███░░ 47% ↻3일22시간 │ ~/proj │ ctx 22% │ git main [*2]
+  team:me@example.com │ Fable 5.1 │ 주간 ██░░░┃░░░░ 21% │ 세션 ██░░░░░░┃░ 16% │ Fable █████┃░░░░ 47% │ ~/proj │ ctx 22% │ git main [*2]
 
 입력: Claude Code 가 stdin 으로 주는 JSON. 한도는 rate_limits(five_hour / seven_day, 첫 응답 뒤부터)에서 읽으므로
       /usage 를 따로 부르지 않는다 — 렌더마다 비용이 없다. 계정 이메일은 rate_limits 에 없어 프로필의 .claude.json 에서 읽는다.
@@ -30,9 +30,10 @@ DEFAULTS = {
     "model_quota_ttl": "10",          # 캐시가 이보다 오래(분)됐으면 백그라운드로 다시 조회
     "model_quota_bg":  "yes",         # no 면 캐시만 읽고 조회는 ccp 메뉴에 맡긴다
     "percent":    "used",             # used | left
-    "bar":        "5",                # 막대 칸 수. 0 = 막대 없음
+    "bar":        "10",               # 막대 칸 수. 0 = 막대 없음
     "bar_chars":  "█░",
-    "show_reset": "yes",
+    "bar_tick":   "yes",              # 막대 안에 지금 위치(┃). 오른쪽 끝에 붙을수록 리셋 임박 — ccp 메뉴와 같다
+    "show_reset": "no",               # ↻ 리셋까지 남은 시간. 상태줄엔 마우스 오버가 없어 켜거나 끄거나 둘 중 하나
     "thresholds": "70 90",            # 노랑 / 빨강 (사용률 기준)
     "color":      "yes",
     "dir":        "short",            # short(~/…) | name(마지막 폴더만) | full
@@ -103,6 +104,7 @@ try:
 except Exception:
     BARW = 5
 FULL, EMPTY = (CONF["bar_chars"] + "█░")[0], (CONF["bar_chars"] + "█░")[1]
+TICK, TICKC = "┃", "1;36"            # ccp 메뉴와 같은 눈금·색
 DIM = "2"
 
 
@@ -115,12 +117,27 @@ def col(used):
     return "1;31" if used >= 100 else "31" if used >= TH_R else "33" if used >= TH_Y else "32"
 
 
-def bar(used):
+def bar(used, frac=None):
+    """frac = 창의 경과 비율(0=방금 시작, 1=리셋 직전). 그 자리에 ┃ 를 겹쳐 '지금'을 표시한다.
+    막대가 ┃ 에 못 미치면 페이스보다 덜 쓴 것(여유), 넘으면 페이스보다 많이 쓴 것 — ccp 메뉴와 같은 읽는 법."""
     if BARW <= 0: return ""
     if used is None: return C("·" * BARW, DIM) + " "
     f = max(0, min(BARW, int(round(used / 100 * BARW))))
     if used > 0 and f == 0: f = 1
-    return C(FULL * f, col(used)) + C(EMPTY * (BARW - f), DIM) + " "
+    cells = [(FULL, col(used))] * f + [(EMPTY, DIM)] * (BARW - f)
+    if frac is not None and yes(CONF["bar_tick"]):
+        cells[min(BARW - 1, int(max(0.0, min(1.0, frac)) * BARW))] = (TICK, TICKC)
+    out = ""; run = ""; rc = None
+    for ch, c in cells + [(None, None)]:
+        if c != rc and run: out += C(run, rc); run = ""
+        if ch is None: break
+        run += ch; rc = c
+    return out + " "
+
+
+def elapsed(remaining_min, window_min):
+    if remaining_min is None: return None
+    return 1.0 - max(0.0, min(1.0, remaining_min / window_min))
 
 
 # ── 입력 ────────────────────────────────────────────────────────────────────
@@ -146,24 +163,25 @@ def seg_account():
     return CONF["account"].format(profile=profile, email=email, user=email.split("@")[0], domain=email.split("@")[-1])
 
 
-def quota_one(label, w):
+def quota_one(label, w, window_min):
     if not w or w.get("used_percentage") is None:
         return None
     used = int(round(w["used_percentage"]))
     shown = 100 - used if CONF["percent"].lower() == "left" else used
-    s = f"{label} " + bar(used) + C(f"{shown}%", col(used))
     r = w.get("resets_at")
-    if r and yes(CONF["show_reset"]):
-        s += C(" ↻" + i18n_left(max(0, int(round((r - time.time()) / 60)))), DIM)
+    remaining = max(0, int(round((r - time.time()) / 60))) if r else None
+    s = f"{label} " + bar(used, elapsed(remaining, window_min)) + C(f"{shown}%", col(used))
+    if remaining is not None and yes(CONF["show_reset"]):
+        s += C(" ↻" + i18n_left(remaining), DIM)
     return s
 
 
 def seg_weekly():
-    return quota_one(t("weekly"), (d.get("rate_limits") or {}).get("seven_day"))
+    return quota_one(t("weekly"), (d.get("rate_limits") or {}).get("seven_day"), 7 * 1440)
 
 
 def seg_session():
-    return quota_one(t("session"), (d.get("rate_limits") or {}).get("five_hour"))
+    return quota_one(t("session"), (d.get("rate_limits") or {}).get("five_hour"), 300)
 
 
 def _profile_dir():
@@ -204,10 +222,11 @@ def seg_model_quota():
         return None
     used = int(row[5])
     shown = 100 - used if CONF["percent"].lower() == "left" else used
-    s = f"{row[4]} " + bar(used) + C(f"{shown}%", col(used))
-    if row[1].isdigit() and yes(CONF["show_reset"]) and not stale:
-        # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다. 낡은 캐시면 시각은 믿을 수 없으니 생략한다.
-        s += C(" ↻" + i18n_left(max(0, int(row[1]) - int(age // 60))), DIM)
+    # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다. 낡은 캐시면 시각은 믿을 수 없으니 눈금·리셋을 생략한다.
+    remaining = max(0, int(row[1]) - int(age // 60)) if (row[1].isdigit() and not stale) else None
+    s = f"{row[4]} " + bar(used, elapsed(remaining, 7 * 1440)) + C(f"{shown}%", col(used))
+    if remaining is not None and yes(CONF["show_reset"]):
+        s += C(" ↻" + i18n_left(remaining), DIM)
     if stale:
         s += C("~", DIM)                              # 낡은 값 표시. 다음 렌더쯤 갱신된다
     return s

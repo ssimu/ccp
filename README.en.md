@@ -83,10 +83,11 @@ In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` to
 The status line at the bottom of Claude Code always shows the current account and remaining quota.
 
 ```
-team:me@example.com │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Fable ██░░░ 47% ↻2일3시간 │ ~/proj │ ctx 12% │ git main
+team:me@example.com │ Opus │ 주간 ████░░┃░░░ 38% │ 세션 █░░░░░┃░░░ 12% │ Fable █████░┃░░░ 47% │ ~/proj │ ctx 12% │ git main
 ```
 
-`주간` is the weekly window, `세션` the 5-hour one, `↻` the time until reset. Yellow from 70% used, red from 90%.
+`주간` is the weekly window, `세션` the 5-hour one. The `┃` inside a bar is where you are in that window: nearer the right edge means closer to reset, and a bar that stops short of `┃` means you are under pace (same reading as the ccp menu). Yellow from 70% used, red from 90%.
+Set `show_reset = yes` in `statusline.conf` to also print the time until reset.
 Weekly and session come straight from Claude Code. The **model-only weekly quota** (e.g. Fable) is not handed to the status line,
 so ccp shows its cached `/usage` lookup as `Fable ██░░░ 47%`, refreshed in the background every 10 minutes; a trailing `~` marks a stale value.
 

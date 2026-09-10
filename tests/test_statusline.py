@@ -36,16 +36,33 @@ def plain(s):
 
 
 def test_기본값():
+    # 주간: 남은 2일3시간/7일 → 경과 0.69 → 눈금 6번째 칸. 사용 38% → 4칸 채움.  세션: 남은 100/300분 → 경과 0.67 → 6번째. 12% → 1칸.
     out = plain(run())
-    assert out.startswith("nonexistent:미로그인 │ Opus │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ ~/proj │ ctx 12%")
+    assert out.startswith("nonexistent:미로그인 │ Opus │ 주간 ████░░┃░░░ 38% │ 세션 █░░░░░┃░░░ 12% │ ~/proj │ ctx 12%")
+
+
+def test_리셋_시간은_켜면_보인다():
+    out = plain(run("segments = weekly\nshow_reset = yes\n"))
+    assert out.endswith("38% ↻2일3시간")
+
+
+def test_눈금을_끄면_막대만():
+    out = plain(run("segments = weekly\nbar_tick = no\n"))
+    assert out == "주간 ████░░░░░░ 38%"
+
+
+def test_눈금은_리셋_직전이면_오른쪽_끝():
+    p = json.loads(PAYLOAD); p["rate_limits"]["seven_day"]["resets_at"] = NOW + 60
+    out = plain(run("segments = weekly\n", json.dumps(p)))
+    assert out == "주간 ████░░░░░┃ 38%"
 
 
 CACHE = "25\t5580\t48\t190\tFable\t47\tok\t09/14 15:00\t09/10 21:10\t10080\t300\t"
 
 
 def test_모델_전용_한도는_캐시에서():
-    out = plain(run("segments = quota\n", cache=CACHE))
-    assert "Fable ██░░░ 47% ↻3일21시간" in out and not out.endswith("~")
+    out = plain(run("segments = quota\nbar_tick = no\nshow_reset = yes\n", cache=CACHE))
+    assert "Fable █████░░░░░ 47% ↻3일21시간" in out and not out.endswith("~")
 
 
 def test_낡은_캐시는_물결표():
@@ -55,7 +72,7 @@ def test_낡은_캐시는_물결표():
 
 
 def test_신선한_캐시는_지난_시간을_빼고_리셋을_보인다():
-    out = plain(run("segments = model_quota\nmodel_quota_ttl = 60\n", cache=CACHE, cache_age=5 * 60))
+    out = plain(run("segments = model_quota\nmodel_quota_ttl = 60\nshow_reset = yes\n", cache=CACHE, cache_age=5 * 60))
     assert "↻3일20시간" in out and not out.endswith("~")   # 5580분 − 5분
 
 
@@ -79,13 +96,13 @@ def test_separator():
 
 
 def test_막대_없이_숫자만():
-    out = plain(run("segments = weekly\nbar = 0\nshow_reset = no\n"))
+    out = plain(run("segments = weekly\nbar = 0\n"))
     assert out == "주간 38%"
 
 
 def test_막대_글자와_폭():
-    out = plain(run("segments = weekly\nbar = 10\nbar_chars = '#-'\nshow_reset = no\n"))
-    assert out == "주간 ####------ 38%"
+    out = plain(run("segments = weekly\nbar = 5\nbar_chars = '#-'\nbar_tick = no\n"))
+    assert out == "주간 ##--- 38%"
 
 
 def test_남은_비율():
