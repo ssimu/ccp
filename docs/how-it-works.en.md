@@ -41,6 +41,7 @@ ccp_i18n.py            UI strings in ko/en/ja/zh; ccp_i18n.zsh is generated from
 ccp_render.py          menu renderer — cards/table, recommendation, interactive keys
 ccp_codex.py           codex quota (app-server JSON-RPC → TSV)
 statusline.sh          status line entry → ccp_statusline.py (statusline.conf picks pieces, bar, colors, format)
+ccp_codex_statusline.py  Codex footer — writes [tui].status_line (model, limits) into ~/.codex/config.toml unless already set
 install.sh             installer (idempotent)
 profiles.example.tsv   → ~/.config/ccp/profiles.tsv
 config.example.zsh     → ~/.config/ccp/config.zsh

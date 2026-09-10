@@ -119,7 +119,10 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 If the `codex` command exists, it appears in the menu automatically. For several Codex accounts,
 put `codex` in the tool column. A Codex profile is **one workspace**: make one profile for your personal workspace and one per team,
 and when you run `CODEX_HOME=~/.codex-profiles/<name> codex login` in each, pick that workspace on the browser approval screen.
-Quotas are per workspace even under the same ChatGPT login. Codex does not report the workspace name, so the menu shows only your
+Quotas are per workspace even under the same ChatGPT login. The installer also puts **model, 5-hour limit, weekly limit and context**
+into Codex's own footer via `[tui] status_line` in `~/.codex/config.toml` (left alone if already set); change the items with `/statusline`
+inside Codex. Codex cannot run an external status line script, so the ccp profile name cannot appear there; use the ccp menu for that.
+Codex does not report the workspace name, so the menu shows only your
 profile name and the plan (pro/team). If two profiles show the same email, plan and usage, they are logged into the same workspace;
 run `codex login` again in one of them and choose the other workspace. Example line: `codex	work	cxw	company workspace`
 

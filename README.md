@@ -120,6 +120,9 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 `profiles.tsv`의 도구 칸을 `codex`로 적습니다. Codex 프로필은 **워크스페이스 단위**입니다. 개인 워크스페이스와 팀 워크스페이스,
 팀이 여러 개면 팀마다 프로필 하나씩 만들고, 각 프로필에서 `CODEX_HOME=~/.codex-profiles/이름 codex login` 할 때 브라우저 승인 화면에서
 그 워크스페이스를 고르면 됩니다. 같은 ChatGPT 계정이라도 워크스페이스마다 한도가 따로입니다.
+Codex 화면 하단에도 **모델·5시간 한도·주간 한도·컨텍스트**가 보이도록 설치 때 `~/.codex/config.toml`의 `[tui] status_line`을 넣어 줍니다
+(이미 설정돼 있으면 건드리지 않습니다). 항목을 바꾸려면 Codex 안에서 `/statusline`. Codex는 외부 스크립트를 상태줄에 붙일 수 없어
+ccp 프로필(계정) 이름은 거기 못 넣습니다. 어느 계정인지는 ccp 메뉴에서 봅니다.
 Codex는 워크스페이스 이름을 알려주지 않아 메뉴에는 프로필 이름과 요금제(pro/team)만 보입니다. 두 프로필의 이메일·요금제·사용률이
 똑같이 나오면 같은 워크스페이스에 로그인된 것이니, 그 프로필에서 다시 `codex login` 해 다른 워크스페이스를 고르세요. 예: `codex	work	cxw	회사 워크스페이스`
 

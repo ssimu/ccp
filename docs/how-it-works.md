@@ -139,6 +139,7 @@ ccp_i18n.py            표시 문구 사전(ko/en/ja/zh). ccp_i18n.zsh 는 여�
 ccp_render.py          메뉴 렌더러 — 카드/표, 추천 계산, 대화형 키 입력
 ccp_codex.py           codex 사용량 (app-server JSON-RPC → TSV)
 statusline.sh          Claude Code 상태줄 진입점 → ccp_statusline.py (statusline.conf 로 조각·막대·색·형식을 정한다)
+ccp_codex_statusline.py  Codex 상태줄 — ~/.codex/config.toml 의 [tui].status_line 에 모델·한도 항목을 넣는다(있으면 그대로)
 install.sh             설치 (멱등)
 profiles.example.tsv   설정 예시 → ~/.config/ccp/profiles.tsv
 config.example.zsh     설정 예시 → ~/.config/ccp/config.zsh

@@ -118,7 +118,9 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 **我也用 Codex。**
 只要有 `codex` 命令，它就会自动出现在菜单里。想用多个 Codex 账号，
 把工具列写成 `codex`。Codex 配置以 **工作区** 为单位：个人工作区一个、每个团队一个，在各配置里执行
-`CODEX_HOME=~/.codex-profiles/名称 codex login` 时，在浏览器授权页选择对应工作区。同一个 ChatGPT 账号下各工作区的额度也是分开的。
+`CODEX_HOME=~/.codex-profiles/名称 codex login` 时，在浏览器授权页选择对应工作区。同一个 ChatGPT 账号下各工作区的额度也是分开的。安装时会在 `~/.codex/config.toml` 的 `[tui] status_line` 里加入 **模型、5 小时额度、本周额度、上下文**，
+所以 Codex 自己的底栏也能看到（已有设置则不动）。要改项目，在 Codex 里用 `/statusline`。Codex 不能挂外部状态栏脚本，所以 ccp 的配置（账号）名
+无法显示在那里，当前账号请看 ccp 菜单。
 Codex 不返回工作区名称，菜单里只显示配置名和套餐（pro/team）。若两个配置的邮箱、套餐、用量完全相同，说明登录的是同一个工作区，
 在其中一个里重新 `codex login` 选另一个工作区即可。例如：`codex	work	cxw	公司工作区`
 

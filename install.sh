@@ -10,6 +10,7 @@
 #   2. ~/.config/ccp/{profiles.tsv,config.zsh,statusline.conf} 를 예시에서 복사 (이미 있으면 그대로 둠)
 #   3. profiles.tsv 대로 프로필 디렉터리 생성 (ccp-sync)
 #   4. ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정 (--no-statusline 이면 건너뜀)
+#      codex 가 있으면 ~/.codex/config.toml 의 [tui].status_line 에 모델·한도 항목도 넣는다(있으면 그대로)
 # 로그인(/login)은 프로필마다 사람이 직접 한다 — 토큰은 어디에도 복사하지 않는다.
 set -u
 
@@ -106,6 +107,15 @@ else:
 PY
 else
     ok "건너뜀 (--no-statusline)"
+fi
+# Codex 는 외부 스크립트를 못 붙이지만 자기 상태줄 항목을 고를 수 있다 — 모델·5시간·주간 한도가 보이게 넣는다.
+# 이미 status_line 이 있으면 손대지 않는다. Codex 안에서 /statusline 으로 바꿀 수 있다.
+if [ "$STATUSLINE" = 1 ] && command -v codex >/dev/null 2>&1; then
+    case "$(python3 "$DIR/ccp_codex_statusline.py" apply 2>/dev/null)" in
+        kept)     ok "codex 상태줄 (이미 설정돼 있어 그대로 둠 — 바꾸려면 codex 에서 /statusline)" ;;
+        inserted|appended) ok "codex 상태줄: 모델 · 5시간 한도 · 주간 한도 · 컨텍스트 · 디렉터리 · git (~/.codex/config.toml, 백업 남김)" ;;
+        *)        note "codex 상태줄 설정을 못 넣었다. ~/.codex/config.toml 을 확인할 것: python3 $DIR/ccp_codex_statusline.py apply" ;;
+    esac
 fi
 
 printf '\n─────────────────────────────────────────────\n'
