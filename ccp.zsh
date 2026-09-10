@@ -72,78 +72,11 @@ print(f\"{a['emailAddress']}  {(a.get('organizationName') or '')[:26]}\")
 " "$1" "$(_ccp_t z_nologin)" 2>/dev/null || _ccp_tl z_nologin
 }
 
-# 로그인 여부만. 미로그인 프로필은 /usage 를 부를 필요가 없다(호출당 ~3.5s).
-_ccp_logged_in() {
-  python3 -c "
-import json,sys
-try: a=json.load(open(sys.argv[1])).get('oauthAccount') or {}
-except Exception: sys.exit(1)
-sys.exit(0 if a.get('emailAddress') else 1)
-" "$1" 2>/dev/null
-}
-
-# ── /usage 출력 파서 ────────────────────────────────────────────────────────
-# 한 줄 TSV 로 뱉는다: 주간% \t 주간리셋(분) \t 세션% \t 세션리셋(분) \t 모델명 \t 모델% \t 상태 \t 주간리셋시각 \t 세션리셋시각
-# 표시는 전부 _ccp_render 가 맡는다 — 여기서는 숫자만 낸다.
-_ccp_parse_script() { cat <<'PY'
-import re,sys,datetime
-t=sys.stdin.read()
-M={m:i for i,m in enumerate(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],1)}
-now=datetime.datetime.now()
-def parse(x):
-    # print 모드 형식: 'resets Sep 8 at 1:19am (Asia/Seoul)'
-    #   정각이면 분 생략('11pm'), 연도가 바뀌면 'Jan 2, 2027 at 1:19am' 처럼 연도가 붙는다.
-    m=re.search(r'resets ([A-Z][a-z]{2}) (\d+)(?:, (\d{4}))? at (\d+)(?::(\d+))?(am|pm)',x)
-    if not m: return None
-    mo,d,yr=M.get(m.group(1),0),int(m.group(2)),m.group(3)
-    h,mi,ap=int(m.group(4)),int(m.group(5) or 0),m.group(6)
-    if ap=='pm' and h!=12: h+=12
-    if ap=='am' and h==12: h=0
-    try: dt=datetime.datetime(int(yr) if yr else now.year,mo,d,h,mi)
-    except ValueError: return None
-    # 연도가 없을 때 과거로 나오면 내년으로 본다(연말 경계).
-    if not yr and (now-dt).days>180: dt=dt.replace(year=now.year+1)
-    return dt
-def row(pat):
-    m=re.search(pat+r'([^\n]*)',t)
-    if not m: return None,None
-    line=m.group(1); pc=re.search(r'(\d+)% used',line)
-    return (int(pc.group(1)) if pc else None), parse(line)
-w,wdt=row(r'Current week \(all models\):')
-s,sdt=row(r'Current session:')
-mm=re.search(r'Current week \((?!all models)([^)]+)\):([^\n]*)',t)
-mn=None; mp=None
-if mm:
-    mn=mm.group(1); pc=re.search(r'(\d+)% used',mm.group(2))
-    mp=int(pc.group(1)) if pc else None
-# 분은 반올림 — 버림이면 '1:19am 리셋'이 22:37에 2시간41분으로 나와 1분 어긋나 보인다.
-def mins(dt):  return '' if dt is None else str(max(int(round((dt-now).total_seconds()/60)),0))
-def stamp(dt): return '' if dt is None else dt.strftime('%m/%d %H:%M')
-def num(v):    return '' if v is None else str(v)
-# 뒤 세 칸(주간 창·세션 창·메모)은 codex 와 형식을 맞추려고 붙인다. claude 는 7일/5시간 고정.
-if w is None and s is None:
-    print('\t'.join(['']*6+['fail']+['']*5))
-else:
-    print('\t'.join([num(w),mins(wdt),num(s),mins(sdt),mn or '',num(mp),'ok',stamp(wdt),stamp(sdt),
-                     '10080','300','']))
-PY
-}
-
-# 사용량 한 줄. /usage 는 print 모드에서도 동작한다(모델 호출 아님).
-# 인자가 비면 기본 프로필. 기본은 설정이 ~/.claude.json(홈 바로 아래)이라
-# CLAUDE_CONFIG_DIR=~/.claude 로 부르면 ~/.claude/.claude.json 을 찾아 실패한다.
+# 사용량 한 줄. 조회·파싱·캐시는 ccp_usage.py 가 한다(상태줄이 같은 캐시를 읽어 모델 전용 한도를 보인다).
+# /usage 는 print 모드에서도 동작하고 모델 호출이 아니다(토큰 0). 인자가 비면 기본 프로필.
 _ccp_usage_one() {
-  local dir="${1:-}"
-  local cfg="$HOME/.claude.json"
-  [ -n "$dir" ] && cfg="$dir/.claude.json"
-  _ccp_logged_in "$cfg" || { printf '\t\t\t\t\t\tnologin\n'; return 0; }
-  # 프로필 세션 안에서 부르면 CLAUDE_CONFIG_DIR 이 환경에 남아 자식이 물려받는다.
-  # 기본 프로필을 조회하려면 반드시 지워야 한다(안 그러면 현재 프로필이 조회된다).
-  # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력(메뉴에서 고르는 번호)을
-  # 먹어 버려서 read 가 빈 값을 받는다.
-  { if [ -n "$dir" ]; then CLAUDE_CONFIG_DIR="$dir" command claude -p "/usage" --max-turns 1 </dev/null
-    else ( unset CLAUDE_CONFIG_DIR; command claude -p "/usage" --max-turns 1 </dev/null ); fi; } 2>/dev/null \
-    | python3 -c "$(_ccp_parse_script)" 2>/dev/null || printf '\t\t\t\t\t\tfail\n'
+  python3 "$_CCP_HOME/ccp_usage.py" probe "${1:-}" 2>/dev/null \
+    || printf '\t\t\t\t\t\tfail\t\t\t\t\t\n'
 }
 
 # codex 사용량 한 줄. app-server 에 account/read + account/rateLimits/read 를 던진다(토큰 0, ~1s).

@@ -87,6 +87,8 @@ team:me@example.com │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █
 ```
 
 `주간` is the weekly window, `세션` the 5-hour one, `↻` the time until reset. Yellow from 70% used, red from 90%.
+Weekly and session come straight from Claude Code. The **model-only weekly quota** (e.g. Fable) is not handed to the status line,
+so ccp shows its cached `/usage` lookup as `Fable ██░░░ 47%`, refreshed in the background every 10 minutes; a trailing `~` marks a stale value.
 
 ## FAQ
 

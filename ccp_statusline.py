@@ -26,7 +26,9 @@ DEFAULTS = {
     "format":     "",                 # 비어 있지 않으면 segments/separator 대신 이 틀을 쓴다
     "separator":  " │ ",
     "account":    "{profile}:{email}",
-    "quota":      "weekly session",
+    "quota":      "weekly session model",   # model = Fable 같은 모델 전용 주간 한도 (ccp 캐시에서)
+    "model_quota_ttl": "10",          # 캐시가 이보다 오래(분)됐으면 백그라운드로 다시 조회
+    "model_quota_bg":  "yes",         # no 면 캐시만 읽고 조회는 ccp 메뉴에 맡긴다
     "percent":    "used",             # used | left
     "bar":        "5",                # 막대 칸 수. 0 = 막대 없음
     "bar_chars":  "█░",
@@ -164,10 +166,58 @@ def seg_session():
     return quota_one(t("session"), (d.get("rate_limits") or {}).get("five_hour"))
 
 
+def _profile_dir():
+    return os.environ.get("CLAUDE_CONFIG_DIR") or ""
+
+
+def _refresh_in_background():
+    """캐시가 낡았을 때 ccp_usage.py refresh 를 떼어 놓고 돌린다. 락으로 한 번만."""
+    lock = os.path.join(CFG_DIR, "cache", "refresh-" + (os.path.basename(_profile_dir().rstrip("/")) or "default") + ".lock")
+    try:
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        if os.path.exists(lock) and time.time() - os.path.getmtime(lock) < 120:
+            return                                   # 이미 도는 중(2분 안)
+        fd = os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_TRUNC); os.close(fd)
+        # 끝나면 락을 지우도록 셸로 감싼다. 상태줄 프로세스와 분리(start_new_session).
+        cmd = f'python3 "{os.path.join(HERE, "ccp_usage.py")}" refresh "{_profile_dir()}"; rm -f "{lock}"'
+        subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True, env=dict(os.environ, CCP_CONFIG_DIR=CFG_DIR))
+    except Exception:
+        pass
+
+
+def seg_model_quota():
+    """Fable 같은 모델 전용 주간 한도. Claude Code 의 rate_limits 에는 없어 ccp 의 /usage 캐시에서 읽는다."""
+    try:
+        import ccp_usage
+    except Exception:
+        return None
+    try:
+        ttl = float(CONF["model_quota_ttl"]) * 60
+    except Exception:
+        ttl = 600
+    row, age = ccp_usage.read_cache(_profile_dir())
+    stale = row is None or age > ttl
+    if stale and yes(CONF["model_quota_bg"]) and not os.environ.get("CCP_STATUSLINE_TEST_NO_BG"):
+        _refresh_in_background()
+    if row is None or row[6] != "ok" or not row[4] or not row[5].strip().lstrip("-").isdigit():
+        return None
+    used = int(row[5])
+    shown = 100 - used if CONF["percent"].lower() == "left" else used
+    s = f"{row[4]} " + bar(used) + C(f"{shown}%", col(used))
+    if row[1].isdigit() and yes(CONF["show_reset"]):
+        # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다
+        left_min = max(0, int(row[1]) - int(age // 60))
+        s += C(" ↻" + i18n_left(left_min), DIM)
+    if stale:
+        s += C("~", DIM)                              # 낡은 값 표시. 다음 렌더쯤 갱신된다
+    return s
+
+
 def seg_quota():
     parts = []
     for w in CONF["quota"].split():
-        f = {"weekly": seg_weekly, "session": seg_session}.get(w)
+        f = {"weekly": seg_weekly, "session": seg_session, "model": seg_model_quota}.get(w)
         s = f() if f else None
         if s: parts.append(s)
     return CONF["separator"].join(parts) if parts else C(t("sl_no_limits"), DIM)
@@ -214,7 +264,7 @@ def seg_git():
         return None
 
 
-SEGS = {"account": seg_account, "quota": seg_quota, "weekly": seg_weekly, "session": seg_session,
+SEGS = {"account": seg_account, "quota": seg_quota, "weekly": seg_weekly, "session": seg_session, "model_quota": seg_model_quota,
         "model": seg_model, "dir": seg_dir, "ctx": seg_ctx, "git": seg_git}
 
 

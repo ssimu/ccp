@@ -10,14 +10,21 @@ PAYLOAD = json.dumps({"model": {"display_name": "Opus"}, "workspace": {"current_
                                       "five_hour": {"used_percentage": 12, "resets_at": NOW + 100 * 60}}})
 
 
-def run(conf=None, payload=PAYLOAD, lang="ko", extra_env=None, custom_script=None):
+NO_BG = "model_quota_bg = no\n"   # 테스트에서 실제 claude 를 띄우지 않도록
+
+
+def run(conf=None, payload=PAYLOAD, lang="ko", extra_env=None, custom_script=None, cache=None, cache_age=0):
     with tempfile.TemporaryDirectory() as cfg:
-        if conf is not None:
-            (Path(cfg) / "statusline.conf").write_text(conf)
+        (Path(cfg) / "statusline.conf").write_text(NO_BG + (conf or ""))
+        if cache is not None:
+            c = Path(cfg) / "cache"; c.mkdir()
+            f = c / "usage-default.tsv"; f.write_text(cache + "\n")
+            os.utime(f, (time.time() - cache_age, time.time() - cache_age))
         if custom_script is not None:
             p = Path(cfg) / "statusline.sh"; p.write_text(custom_script); p.chmod(0o755)
         env = dict(os.environ, CCP_CONFIG_DIR=cfg, CCP_LANG=lang, CLAUDE_CONFIG_DIR="/nonexistent")
         env.update(extra_env or {})
+        if cache is not None: env.pop("CLAUDE_CONFIG_DIR")      # 캐시는 기본 프로필(usage-default) 것
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=payload, capture_output=True, text=True, env=env)
         assert r.returncode == 0, r.stderr
         return r.stdout
@@ -31,6 +38,30 @@ def plain(s):
 def test_기본값():
     out = plain(run())
     assert out.startswith("nonexistent:미로그인 │ 주간 ██░░░ 38% ↻2일3시간 │ 세션 █░░░░ 12% ↻1시간40분 │ Opus │ ~/proj │ ctx 12%")
+
+
+CACHE = "25\t5580\t48\t190\tFable\t47\tok\t09/14 15:00\t09/10 21:10\t10080\t300\t"
+
+
+def test_모델_전용_한도는_캐시에서():
+    out = plain(run("segments = quota\n", cache=CACHE))
+    assert "Fable ██░░░ 47% ↻3일21시간" in out and not out.endswith("~")
+
+
+def test_낡은_캐시는_물결표():
+    out = plain(run("segments = model_quota\nmodel_quota_ttl = 1\n", cache=CACHE, cache_age=5 * 60))
+    assert out.startswith("Fable ") and out.endswith("~")
+    assert "↻3일20시간" in out                       # 캐시 시점의 남은 시간에서 지난 5분을 뺀다
+
+
+def test_캐시가_없으면_모델_조각은_빠진다():
+    out = plain(run("segments = quota\n"))
+    assert "Fable" not in out and out.startswith("주간")
+
+
+def test_모델_한도가_없는_계정은_조각_없음():
+    out = plain(run("segments = quota\n", cache="5\t100\t1\t10\t\t\tok\t\t\t10080\t300\t"))
+    assert out.count("│") == 1
 
 
 def test_segments_순서와_선택():
@@ -113,7 +144,7 @@ def test_따옴표_값_뒤의_주석은_버린다():
 def test_CCP_LANG_이_없으면_config_zsh_에서_읽는다():
     with tempfile.TemporaryDirectory() as cfg:
         (Path(cfg) / "config.zsh").write_text("CCP_CLAUDE_ARGS=()\nCCP_LANG=ja\n")
-        (Path(cfg) / "statusline.conf").write_text("segments = weekly\nbar = 0\nshow_reset = no\n")
+        (Path(cfg) / "statusline.conf").write_text(NO_BG + "segments = weekly\nbar = 0\nshow_reset = no\n")
         env = {k: v for k, v in os.environ.items() if k != "CCP_LANG"}
         env.update(CCP_CONFIG_DIR=cfg, CLAUDE_CONFIG_DIR="/nonexistent", LANG="en_US.UTF-8")
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=PAYLOAD, capture_output=True, text=True, env=env)
@@ -121,4 +152,7 @@ def test_CCP_LANG_이_없으면_config_zsh_에서_읽는다():
 
 
 def test_설정_파일이_없어도_기본으로_돈다():
-    assert "주간" in plain(run(None))
+    with tempfile.TemporaryDirectory() as cfg:
+        env = dict(os.environ, CCP_CONFIG_DIR=cfg, CCP_LANG="ko", CLAUDE_CONFIG_DIR="/nonexistent", CCP_STATUSLINE_TEST_NO_BG="1")
+        r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=PAYLOAD, capture_output=True, text=True, env=env)
+        assert "주간" in plain(r.stdout)
