@@ -1,0 +1,8 @@
+# ccp 프로필 목록 — 계정 수·이름·별칭은 여기서 정한다. 원하는 만큼 줄을 추가/삭제한다.
+# 형식: 도구<TAB>이름<TAB>별칭<TAB>설명   (도구 = claude | codex, 별칭·설명은 비워도 된다)
+# 기본 프로필(~/.claude, ~/.codex)은 적지 않는다 — 메뉴 0번에 항상 있다.
+# 고친 뒤: ccp-sync  (디렉터리 생성)  →  ccp  →  새 프로필에서 /login
+# 별칭은 'cp' 'cd' 같은 기존 명령과 겹치면 안 된다. 예: cct, ccm, cc2
+claude	team	cct	팀 계정
+claude	personal	ccm	개인 계정
+codex	work	cxw	Codex 회사 워크스페이스

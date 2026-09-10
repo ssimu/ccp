@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.DS_Store
+# 사용자 설정은 ~/.config/ccp 에 있고 저장소에 두지 않는다. 실수 방지.
+profiles.tsv
+config.zsh
