@@ -479,9 +479,11 @@ if not interactive():
 
 import termios,tty as ttymod,select
 hl=rows.index(rec) if rec is not None else 0
+NOTICE=None   # 무시된 키에 대한 한 줄 안내. 다음 키를 누르면 사라진다.
 def target_line(k):
     r=rows[k]
     head=f'  ▶ {r["i"]}) {r["name"]}  '
+    if NOTICE: return C(head,"1")+C(cut(NOTICE,COLS-1-dw(head)),'1;33')
     other=t('key_forced') if FORCED else (t('key_table') if VIEW=='graph' else t('key_graph'))
     return C(head,"1")+C(cut(t('key_help',other=other),COLS-1-dw(head)),'2')
 def draw(k,first):
@@ -501,6 +503,7 @@ try:
     sys.stdout.write('\033[?25l'); n=draw(hl,True)
     while True:
         ch=os.read(fd,1)
+        NOTICE=None
         if ch==b'\x1b':
             r,_,_=select.select([fd],[],[],0.05)
             if not r: break                         # 단독 Esc = 취소
@@ -514,7 +517,8 @@ try:
         elif ch in (b'j',b'J'): hl=(hl+1)%len(rows)
         elif ch in (b'a',b'A'): act=('add',); break
         elif ch in (b'e',b'E',b'd',b'D'):
-            if rows[hl]['name']==DEFAULT_NAME: continue        # 기본 프로필은 이름을 바꾸거나 지울 수 없다
+            if rows[hl]['name']==DEFAULT_NAME:                 # 기본 프로필은 이름을 바꾸거나 지울 수 없다 — 이유를 보여 준다
+                NOTICE=t('key_locked'); n=draw(hl,False); continue
             act=('edit' if ch in (b'e',b'E') else 'del', rows[hl]['tool'], rows[hl]['name']); break
         elif ch in (b'v',b'V'):
             VIEW='table' if VIEW=='graph' else 'graph'
