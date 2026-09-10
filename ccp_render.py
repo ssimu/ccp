@@ -480,6 +480,7 @@ if not interactive():
 import termios,tty as ttymod,select
 hl=rows.index(rec) if rec is not None else 0
 NOTICE=None   # 무시된 키에 대한 한 줄 안내. 다음 키를 누르면 사라진다.
+if all(r['name']==t('default') for r in rows): NOTICE=t('key_empty')   # 첫 설치: 기본만 있을 때
 def target_line(k):
     r=rows[k]
     head=f'  ▶ {r["i"]}) {r["name"]}  '

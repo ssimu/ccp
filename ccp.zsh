@@ -319,6 +319,7 @@ ccp-sync() {
     fi
   done < <(_ccp_tsv_rows)
   if (( made )); then _ccp_tl z_sync_next
+  elif [[ -z "$(_ccp_tsv_rows)" ]]; then _ccp_tl z_sync_empty "$CCP_PROFILES_TSV"
   else _ccp_tl z_sync_all "$CCP_PROFILES_TSV"; fi
 }
 
@@ -381,7 +382,9 @@ _ccp_find() {
 
 ccp() {
   _ccp_entries
-  (( ${#_CCP_NAMES} > 1 )) || { _ccp_tl z_no_profiles >&2; return 1; }
+  # 등록된 계정이 기본만이어도 메뉴를 연다 — 거기서 a 로 추가하는 것이 첫 설정 흐름이다.
+  # 터미널이 아니면(파이프) 메뉴 안 추가가 안 되므로 예전처럼 안내만 한다.
+  if (( ${#_CCP_NAMES} <= 1 )) && [[ -z "${1:-}" ]] && ! [ -t 1 ]; then _ccp_tl z_no_profiles >&2; return 1; fi
 
   local sel="${1:-}" grp="" idx=""
   if [ -n "$sel" ]; then shift; else

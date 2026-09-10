@@ -68,7 +68,6 @@ for f in profiles.tsv config.zsh statusline.conf; do
     else
         cp "$DIR/${f%.*}.example.${f##*.}" "$CFG/$f"
         ok "$f 생성 (예시 복사)"
-        [ "$f" = profiles.tsv ] && note "$CFG/profiles.tsv 는 예시 그대로다(team/personal/work). 실제 계정에 맞게 고친 뒤 'ccp-sync' 를 돌릴 것. 안 쓰는 예시 프로필 디렉터리는 rm -rf ~/.claude-profiles/<이름> 으로 지운다."
     fi
 done
 
@@ -128,7 +127,6 @@ cat <<EOT
 
 다음 (사람이 직접):
   source ~/.zshrc
-  \$EDITOR $CFG/profiles.tsv    계정 이름·별칭을 내 것으로 (한 줄 = 프로필 하나)
-  ccp-sync                      고친 대로 디렉터리 생성
-  ccp                           메뉴 → 프로필 골라 /login  (프로필마다 한 번)
+  ccp                           메뉴가 뜬다 → a 를 눌러 계정 추가 → 그 계정을 골라 Enter → /login
+                                (계정마다 반복. 파일로 하려면 $CFG/profiles.tsv 에 적고 ccp-sync)
 EOT

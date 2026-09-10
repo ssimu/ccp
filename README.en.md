@@ -30,42 +30,22 @@ git clone https://github.com/ssimu/ccp.git ~/projects/ccp
 source ~/.zshrc
 ```
 
-The installer adds one line to `~/.zshrc` and creates a config file. Running it again is safe.
-It never copies login tokens; you log in yourself in step 3.
+The installer adds one line to `~/.zshrc` and creates a config file. Running it again is safe. It never copies login tokens.
 
-### 1. Write down your accounts
-
-Open `~/.config/ccp/profiles.tsv`. It contains an example; replace it with your accounts.
-One line per account, columns separated by **tabs**.
-
-```
-# tool      name        alias  note
-claude      team        cct    work account
-claude      personal    ccm    personal account
-```
-
-- **name** becomes the profile directory name. ASCII recommended.
-- **alias** is a short command: typing `cct` opens that account directly. Optional.
-- Do not list the `~/.claude` account you already use. It is always item 0, "기본" (default).
-
-The number of lines is the number of accounts.
-
-### 2. Create them
-
-```bash
-ccp-sync
-```
-
-Creates a profile directory for each line in the TSV.
-
-### 3. Log in once per account
+Now run `ccp`.
 
 ```bash
 ccp
 ```
 
-Pick an account in the menu and Claude Code opens as that account. The first time it reports you are not logged in,
-so run `/login` there. Repeat for each account.
+1. The menu opens. At first it shows only the account you already use ("기본", the default) and a hint to press `a` to add one.
+2. Press `a` and answer: name (e.g. `team`), alias (e.g. `cct`, optional), note. Back in the menu, the new account appears as not logged in.
+3. Move to that line and press Enter. Claude Code opens as that account; run `/login` there.
+
+Repeat 2–3 for each account and you are done. The name becomes the profile directory name, so ASCII is easiest; the alias is a short command such as `cct` that opens that account directly from the terminal.
+Do not add the `~/.claude` account you already use. It is always item 0.
+
+> Prefer a file? Put one account per line in `~/.config/ccp/profiles.tsv` (tool, name, alias, note, tab-separated) and run `ccp-sync`. Accounts added from the menu are recorded there too.
 
 ## Usage
 
