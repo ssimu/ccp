@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code 상태줄 — 현재 계정과 남은 한도를 항상 보인다. 무엇을 어떻게 보일지는 statusline.conf 로 정한다.
 
-  amc-team:me@example.com │ 주간 ██░░░ 21% ↻3일22시간 │ 세션 █░░░░ 16% ↻4시간34분 │ Fable 5.1 │ ~/proj │ ctx 22% │ git main [*2]
+  team:me@example.com │ 주간 ██░░░ 21% ↻3일22시간 │ 세션 █░░░░ 16% ↻4시간34분 │ Fable 5.1 │ ~/proj │ ctx 22% │ git main [*2]
 
 입력: Claude Code 가 stdin 으로 주는 JSON. 한도는 rate_limits(five_hour / seven_day, 첫 응답 뒤부터)에서 읽으므로
       /usage 를 따로 부르지 않는다 — 렌더마다 비용이 없다. 계정 이메일은 rate_limits 에 없어 프로필의 .claude.json 에서 읽는다.
