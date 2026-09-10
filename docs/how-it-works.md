@@ -138,7 +138,7 @@ ccp.zsh                본체 — 메뉴·전환·ccp-new·ccp-sync·별칭·Tab
 ccp_i18n.py            표시 문구 사전(ko/en/ja/zh). ccp_i18n.zsh 는 여기서 생성 — 손으로 고치지 않는다
 ccp_render.py          메뉴 렌더러 — 카드/표, 추천 계산, 대화형 키 입력
 ccp_codex.py           codex 사용량 (app-server JSON-RPC → TSV)
-statusline.sh          (선택) Claude Code 상태줄
+statusline.sh          Claude Code 상태줄 진입점 → ccp_statusline.py (statusline.conf 로 조각·막대·색·형식을 정한다)
 install.sh             설치 (멱등)
 profiles.example.tsv   설정 예시 → ~/.config/ccp/profiles.tsv
 config.example.zsh     설정 예시 → ~/.config/ccp/config.zsh

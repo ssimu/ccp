@@ -116,6 +116,18 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 菜单、提示信息和状态栏支持 中文、English、한국어、日本語。默认跟随终端语言环境（`LANG`），
 在 `~/.config/ccp/config.zsh` 里写 `CCP_LANG=zh` 可固定；只想临时切换用 `CCP_LANG=en ccp`。
 
+**想改状态栏的样子。**
+在 `~/.config/ccp/statusline.conf` 里设置：显示哪些部分及顺序、分隔符、进度条宽度和字符、已用还是剩余百分比、变色阈值、账号显示格式。
+边改边用 `ccp-statusline` 预览。几个例子：
+```
+segments = account weekly session      # 只看额度，不要模型/目录/git
+bar = 0                                # 只要数字
+percent = left                         # 显示剩余而不是已用
+account = "{profile}"                  # 隐藏邮箱
+format = "{account} · {weekly} · {session} ▏{dir}"   # 用模板代替顺序
+```
+想完全换一套，创建 `~/.config/ccp/statusline.sh`，它会代替内置的运行。
+
 **我已经有状态栏了。**
 用 `install.sh --no-statusline` 安装就不会改动它。
 

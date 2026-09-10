@@ -7,7 +7,7 @@
 #
 # 하는 일:
 #   1. ~/.zshrc 에 ccp.zsh 를 source 하는 한 줄 (clone 한 위치를 그대로 쓴다)
-#   2. ~/.config/ccp/{profiles.tsv,config.zsh} 를 예시에서 복사 (이미 있으면 그대로 둠)
+#   2. ~/.config/ccp/{profiles.tsv,config.zsh,statusline.conf} 를 예시에서 복사 (이미 있으면 그대로 둠)
 #   3. profiles.tsv 대로 프로필 디렉터리 생성 (ccp-sync)
 #   4. ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정 (--no-statusline 이면 건너뜀)
 # 로그인(/login)은 프로필마다 사람이 직접 한다 — 토큰은 어디에도 복사하지 않는다.
@@ -62,11 +62,11 @@ fi
 
 step "2/4  설정 $CFG"
 mkdir -p "$CFG"
-for f in profiles.tsv config.zsh; do
+for f in profiles.tsv config.zsh statusline.conf; do
     if [ -f "$CFG/$f" ]; then ok "$f (그대로 둠)"
     else
         cp "$DIR/${f%.*}.example.${f##*.}" "$CFG/$f"
-        ok "$f 생성 (예시 복사 — 계정 이름·수를 여기서 고친다)"
+        ok "$f 생성 (예시 복사)"
         [ "$f" = profiles.tsv ] && note "$CFG/profiles.tsv 는 예시 그대로다(team/personal/work). 실제 계정에 맞게 고친 뒤 'ccp-sync' 를 돌릴 것. 안 쓰는 예시 프로필 디렉터리는 rm -rf ~/.claude-profiles/<이름> 으로 지운다."
     fi
 done

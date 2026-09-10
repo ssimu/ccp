@@ -116,6 +116,18 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 メニュー・メッセージ・ステータス行は 日本語、English、한국어、中文 に対応しています。既定は端末のロケール（`LANG`）に従い、
 `~/.config/ccp/config.zsh` に `CCP_LANG=ja` と書けば固定できます。一度だけなら `CCP_LANG=en ccp`。
 
+**ステータス行の見え方を変えたい。**
+`~/.config/ccp/statusline.conf` で決めます。表示する要素と順序、区切り、棒の幅と文字、使用率/残り率、色の基準、アカウントの書式。
+編集しながら `ccp-statusline` でプレビューできます。例:
+```
+segments = account weekly session      # 枠だけ。モデル・ディレクトリ・git なし
+bar = 0                                # 棒なしで数字だけ
+percent = left                         # 残り率で
+account = "{profile}"                  # メールを隠す
+format = "{account} · {weekly} · {session} ▏{dir}"   # 順序の代わりにテンプレート
+```
+まったく別のものにしたければ `~/.config/ccp/statusline.sh` を作ると、それが代わりに実行されます。
+
 **既存のステータス行があります。**
 `install.sh --no-statusline` でインストールすれば触りません。
 

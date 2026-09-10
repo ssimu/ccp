@@ -11,11 +11,13 @@
 #   ccp-new <이름>          claude 프로필 추가 (profiles.tsv 에도 기록)
 #   ccp-new --codex <이름>  codex 프로필 추가
 #   ccp-sync         profiles.tsv 에 있는데 디렉터리가 없는 프로필을 만든다
+#   ccp-statusline   상태줄 미리보기 (statusline.conf 를 고치면서 확인)
 #   claude           기본 프로필(~/.claude)
 #
 # 설정 (저장소에 없음 — 사람마다 다르다):
 #   $CCP_CONFIG_DIR/profiles.tsv   도구<TAB>이름<TAB>별칭<TAB>설명. 계정 수·이름·별칭은 여기서 정한다.
 #   $CCP_CONFIG_DIR/config.zsh     CCP_CLAUDE_ARGS 등 실행 옵션 (config.example.zsh 참조)
+#   $CCP_CONFIG_DIR/statusline.conf 상태줄에 무엇을 어떻게 보일지 (statusline.example.conf 참조)
 #   CCP_CONFIG_DIR 기본값은 ~/.config/ccp
 #
 # 원리(claude): CLAUDE_CONFIG_DIR 은 인증까지 분리한다(빈 디렉터리로 실행하면 Not logged in).
@@ -417,6 +419,16 @@ ccp() {
   if [[ -z "$dir" ]]; then ( unset CLAUDE_CONFIG_DIR; command claude "${CCP_CLAUDE_ARGS[@]}" "$@" ); return; fi
   [ -d "$dir" ] || { _ccp_tl z_no_dir "$dir" >&2; return 1; }
   CLAUDE_CONFIG_DIR="$dir" command claude "${CCP_CLAUDE_ARGS[@]}" "$@"
+}
+
+# 상태줄 미리보기 — 지금 계정과 예시 한도(주간 38%·세션 12%)로 statusline.conf 를 적용해 그려 본다.
+# 설정을 고치면서 바로 확인하는 용도. 실제 Claude Code 안에서는 진짜 수치가 들어간다.
+ccp-statusline() {
+  local now; now=$(date +%s)
+  printf '{"model":{"display_name":"Opus"},"workspace":{"current_dir":"%s"},"context_window":{"used_percentage":12},"rate_limits":{"seven_day":{"used_percentage":38,"resets_at":%d},"five_hour":{"used_percentage":12,"resets_at":%d}}}' \
+    "$PWD" $((now+2*86400+3*3600)) $((now+100*60)) | bash "$_CCP_HOME/statusline.sh"
+  printf '\n'
+  [ -f "$CCP_CONFIG_DIR/statusline.conf" ] || printf '  (%s/statusline.conf 없음 — 기본값. 예시: %s/statusline.example.conf)\n' "$CCP_CONFIG_DIR" "$_CCP_HOME"
 }
 
 _ccp_names() {

@@ -116,6 +116,18 @@ No model is called, so it costs no tokens.
 Menu, messages and status line come in English, 한국어, 日本語 and 中文. The default follows your terminal locale (`LANG`);
 set `CCP_LANG=en` in `~/.config/ccp/config.zsh` to pin it, or `CCP_LANG=ja ccp` for a one-off.
 
+**Can I change what the status line shows?**
+Yes, in `~/.config/ccp/statusline.conf`: which pieces and in what order, the separator, bar width and characters, used vs remaining %,
+color thresholds, how the account is shown. Preview while editing with `ccp-statusline`. A few examples:
+```
+segments = account weekly session      # quota only, no model/dir/git
+bar = 0                                # numbers only
+percent = left                         # remaining instead of used
+account = "{profile}"                  # hide the email
+format = "{account} · {weekly} · {session} ▏{dir}"   # free-form template
+```
+For something completely different, create `~/.config/ccp/statusline.sh` and it runs instead.
+
 **I already have a status line.**
 Install with `install.sh --no-statusline` and it is left untouched.
 

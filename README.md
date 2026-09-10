@@ -116,6 +116,18 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 메뉴·메시지·상태줄은 한국어, English, 日本語, 中文을 지원합니다. 기본은 터미널 로케일(`LANG`)을 따르고,
 `~/.config/ccp/config.zsh`에 `CCP_LANG=en`처럼 적으면 고정됩니다. 한 번만 바꿔 보려면 `CCP_LANG=en ccp`.
 
+**상태줄 모양을 바꾸고 싶습니다.**
+`~/.config/ccp/statusline.conf`에서 정합니다. 보일 조각과 순서, 구분자, 막대 폭과 글자, 사용률/남은 비율, 색 기준, 계정 표시 형식을 바꿀 수 있습니다.
+고치면서 `ccp-statusline`으로 바로 미리 봅니다. 몇 가지 예:
+```
+segments = account weekly session      # 모델·디렉터리·git 없이 한도만
+bar = 0                                # 막대 없이 숫자만
+percent = left                         # 남은 비율로
+account = "{profile}"                  # 이메일 숨기기
+format = "{account} · {weekly} · {session} ▏{dir}"   # 순서 대신 틀을 직접
+```
+아예 다른 상태줄을 쓰려면 `~/.config/ccp/statusline.sh`를 만들면 그것이 대신 실행됩니다.
+
 **원래 쓰던 상태줄이 있습니다.**
 `install.sh --no-statusline`으로 설치하면 상태줄은 건드리지 않습니다.
 

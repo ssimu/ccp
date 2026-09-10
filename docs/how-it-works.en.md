@@ -40,7 +40,7 @@ ccp.zsh                main — menu, switching, ccp-new, ccp-sync, aliases, Tab
 ccp_i18n.py            UI strings in ko/en/ja/zh; ccp_i18n.zsh is generated from it — never edit by hand
 ccp_render.py          menu renderer — cards/table, recommendation, interactive keys
 ccp_codex.py           codex quota (app-server JSON-RPC → TSV)
-statusline.sh          (optional) Claude Code status line
+statusline.sh          status line entry → ccp_statusline.py (statusline.conf picks pieces, bar, colors, format)
 install.sh             installer (idempotent)
 profiles.example.tsv   → ~/.config/ccp/profiles.tsv
 config.example.zsh     → ~/.config/ccp/config.zsh
