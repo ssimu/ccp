@@ -92,7 +92,7 @@ team:me@example.com │ Opus │ 주 ██░░┃░ 38%  5h █░░░┃�
 `주` is the weekly window, `5h` the 5-hour one (`labels = full` spells them out as 주간 · 세션). The `┃` inside a bar is where you are in that window: nearer the right edge means closer to reset, and a bar that stops short of `┃` means you are under pace (same reading as the ccp menu). Yellow from 70% used, red from 90%.
 Set `show_reset = yes` in `statusline.conf` to also print the time until reset.
 Weekly and session come straight from Claude Code. The **model-only weekly quota** (e.g. Fable) is not handed to the status line,
-so ccp shows its cached `/usage` lookup as `Fable ██░░░ 47%`, refreshed in the background every 10 minutes; a trailing `~` marks a stale value.
+so ccp shows its cached `/usage` lookup as `Fable ███┃░░ 47%`, refreshed in the background every 10 minutes; a trailing `~` marks a stale value.
 
 ## FAQ
 
@@ -122,15 +122,15 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
 ```
 
 **I use Codex too.**
-If the `codex` command exists, it appears in the menu automatically. For several Codex accounts,
-put `codex` in the tool column. A Codex profile is **one workspace**: make one profile for your personal workspace and one per team,
-and when you run `CODEX_HOME=~/.codex-profiles/<name> codex login` in each, pick that workspace on the browser approval screen.
-Quotas are per workspace even under the same ChatGPT login. The installer also puts **model, 5-hour limit, weekly limit and context**
-into Codex's own footer via `[tui] status_line` in `~/.codex/config.toml` (left alone if already set); change the items with `/statusline`
-inside Codex. Codex cannot run an external status line script, so the ccp profile name cannot appear there; use the ccp menu for that.
-Codex does not report the workspace name, so the menu shows only your
-profile name and the plan (pro/team). If two profiles show the same email, plan and usage, they are logged into the same workspace;
-run `codex login` again in one of them and choose the other workspace. Example line: `codex	work	cxw	company workspace`
+If the `codex` command exists, it appears in the menu automatically. For several Codex accounts, put `codex` in the tool column.
+Example line: `codex	work	cxw	company workspace`
+- **A profile is one workspace.** Make one for your personal workspace and one per team. When you run `CODEX_HOME=~/.codex-profiles/<name> codex login`
+  in each, pick that workspace on the browser approval screen. Quotas are per workspace even under the same ChatGPT login.
+- **Spotting duplicates.** Codex does not report the workspace name, so the menu shows only your profile name and plan (pro/team).
+  If two profiles show the same email, plan and usage, they are logged into the same workspace; run `codex login` again in one and pick the other.
+- **Codex's own footer** gets model, 5-hour limit, weekly limit and context: the installer writes `[tui] status_line` into `~/.codex/config.toml`
+  (left alone if already set). Change the items with `/statusline` inside Codex. Codex cannot run an external status line script, so the ccp profile
+  name cannot appear there; use the ccp menu for that.
 
 **The menu takes a few seconds.**
 That is the quota lookup per account: about 3 seconds each, run in parallel, so the total is about the same. As noted above, it costs no credits.
