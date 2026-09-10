@@ -205,10 +205,9 @@ def seg_model_quota():
     used = int(row[5])
     shown = 100 - used if CONF["percent"].lower() == "left" else used
     s = f"{row[4]} " + bar(used) + C(f"{shown}%", col(used))
-    if row[1].isdigit() and yes(CONF["show_reset"]):
-        # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다
-        left_min = max(0, int(row[1]) - int(age // 60))
-        s += C(" ↻" + i18n_left(left_min), DIM)
+    if row[1].isdigit() and yes(CONF["show_reset"]) and not stale:
+        # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다. 낡은 캐시면 시각은 믿을 수 없으니 생략한다.
+        s += C(" ↻" + i18n_left(max(0, int(row[1]) - int(age // 60))), DIM)
     if stale:
         s += C("~", DIM)                              # 낡은 값 표시. 다음 렌더쯤 갱신된다
     return s

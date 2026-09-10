@@ -51,7 +51,12 @@ def test_모델_전용_한도는_캐시에서():
 def test_낡은_캐시는_물결표():
     out = plain(run("segments = model_quota\nmodel_quota_ttl = 1\n", cache=CACHE, cache_age=5 * 60))
     assert out.startswith("Fable ") and out.endswith("~")
-    assert "↻3일20시간" in out                       # 캐시 시점의 남은 시간에서 지난 5분을 뺀다
+    assert "↻" not in out                            # 낡은 캐시의 리셋 시각은 믿을 수 없어 생략
+
+
+def test_신선한_캐시는_지난_시간을_빼고_리셋을_보인다():
+    out = plain(run("segments = model_quota\nmodel_quota_ttl = 60\n", cache=CACHE, cache_age=5 * 60))
+    assert "↻3일20시간" in out and not out.endswith("~")   # 5580분 − 5분
 
 
 def test_캐시가_없으면_모델_조각은_빠진다():
