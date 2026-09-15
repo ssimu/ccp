@@ -39,6 +39,22 @@ def cache_path(profile_dir):
     return os.path.join(config_dir(), "cache", f"usage-{profile_name(profile_dir)}.tsv")
 
 
+def probe_dir():
+    """/usage 프로브를 돌릴 전용 빈 디렉터리.
+
+    Claude Code 는 실행된 cwd 마다 ~/.claude/projects/<cwd슬러그>/ 에 세션 기록을 남긴다.
+    프로브를 홈에서 돌리면 그 기록이 홈의 프로젝트 디렉터리에 쌓인다 — 계정 수 × 10분마다
+    한 개씩이라 수백 개가 된다. /resume 은 그걸 entrypoint=sdk-cli 로 걸러 보여주지는 않지만,
+    목록을 열 때마다 전부 읽어야 해서 느려지고 디스크만 먹는다. 그래서 전용 폴더에서 돌린다.
+    """
+    d = os.path.join(config_dir(), "probe")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        return os.path.expanduser("~")
+    return d
+
+
 def auth_file(profile_dir):
     # 기본 프로필의 설정은 ~/.claude.json(홈 바로 아래)이다. CLAUDE_CONFIG_DIR=~/.claude 로 부르면 못 찾는다.
     return os.path.join(profile_dir, ".claude.json") if profile_dir else os.path.expanduser("~/.claude.json")
@@ -119,9 +135,10 @@ def fetch(profile_dir, timeout=40):
     else:
         env.pop("CLAUDE_CONFIG_DIR", None)
     try:
-        # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력을 먹는다. cwd 는 홈으로 — 세션 기록이 작업 중인 프로젝트에 섞이지 않게.
+        # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력을 먹는다.
+        # cwd 는 전용 프로브 폴더 — 세션 기록이 작업 중인 프로젝트에도, 홈에도 섞이지 않게(probe_dir 참조).
         r = subprocess.run(["claude", "-p", "/usage", "--max-turns", "1"], stdin=subprocess.DEVNULL, capture_output=True,
-                           text=True, timeout=timeout, env=env, cwd=os.path.expanduser("~"))
+                           text=True, timeout=timeout, env=env, cwd=probe_dir())
         return r.stdout
     except Exception:
         return ""
