@@ -10,3 +10,6 @@
 # 프로필 디렉터리 위치를 바꾸고 싶을 때만.
 # CLAUDE_PROFILES="$HOME/.claude-profiles"
 # CODEX_PROFILES="$HOME/.codex-profiles"
+
+# 워크트리(Orca 등)에서 띄울 때 메인 체크아웃의 대화 기록 폴더를 함께 쓴다(기본 켬). 끄려면 0.
+# CCP_LINK_WORKTREES=0

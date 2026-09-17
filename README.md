@@ -137,6 +137,12 @@ format = "{account} · {weekly} · {session} ▏{dir}"   # 순서 대신 틀을 
 **새 계정에서 MCP 서버가 안 보입니다.**
 MCP 설정은 계정(`.claude.json`)마다 따로 있습니다. 그 계정으로 켠 상태에서 `claude mcp add --scope user …`를 다시 합니다.
 
+**워크트리(Orca 등)에서 띄우면 원래 폴더의 대화가 `/resume`에 안 나옵니다.**
+Claude Code는 기록을 실행 폴더별로 쌓습니다. `ccp`로 프로필을 골라 띄우면 워크트리에서도 원래 폴더(메인 체크아웃)의 기록 폴더를 함께 씁니다. 이미 따로 쌓인 기록은 `ccp-migrate -n`으로 미리 보고 `ccp-migrate`로 합칩니다 — 계정을 바꿔 이어가도 되감기(rewind)가 살도록 `file-history`도 이때 공유로 바뀝니다. 기본 프로필(`claude`를 직접 실행)에는 적용되지 않습니다(Claude Code의 제약). 끄려면 `config.zsh`에 `CCP_LINK_WORKTREES=0`.
+
+**다른 계정이 백그라운드로 넘긴 세션을 이어가고 싶습니다.**
+백그라운드 세션은 그것을 넘긴 계정의 데몬이 쥐고 있습니다. `ccp`가 실행 전에 알려 주는 대로 그 프로필로 들어가 `claude attach <id>` 하세요. 다른 프로필에서 같은 세션을 또 열면 기록이 엉킵니다.
+
 ## 문제가 생기면
 
 - `ccp` 명령이 없다 → 새 터미널을 열거나 `source ~/.zshrc`

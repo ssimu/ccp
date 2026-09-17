@@ -91,6 +91,8 @@ ccp-usage           사용량만 (메뉴 없이)
 ccp-new <이름> [별칭] [설명]          claude 프로필 추가 + TSV 기록
 ccp-new --codex <이름> [별칭] [설명]  codex 프로필 추가 + TSV 기록
 ccp-sync            TSV 대로 빠진 디렉터리 생성
+ccp-migrate [-n]    기록 연동 이관(한 번, 멱등) — file-history·paste-cache 를 공유로 합치고 워크트리 기록을 메인 체크아웃 폴더로
+ccp-migrate --map <기록폴더이름> <메인 체크아웃 경로>   이미 지워진 워크트리의 기록을 직접 짚어 합친다
 ```
 
 `which ccp` 는 못 찾는다(셸 함수). `whence -w ccp`.
@@ -135,6 +137,7 @@ python3 만 있으면 된다(jq 불필요). 이미 다른 statusline 을 쓰고 
 
 ```
 ccp.zsh                본체 — 메뉴·전환·ccp-new·ccp-sync·별칭·Tab 완성
+ccp_link.py            기록 연동 — 워크트리→메인 체크아웃 폴더 이름(CLAUDE_CODE_PROJECT_DIR_NAME), 이관, 다른 프로필이 잡은 세션 찾기
 ccp_i18n.py            표시 문구 사전(ko/en/ja/zh). ccp_i18n.zsh 는 여기서 생성 — 손으로 고치지 않는다
 ccp_render.py          메뉴 렌더러 — 카드/표, 추천 계산, 대화형 키 입력
 ccp_codex.py           codex 사용량 (app-server JSON-RPC → TSV)

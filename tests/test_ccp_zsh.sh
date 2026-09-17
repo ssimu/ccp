@@ -3,7 +3,7 @@
 #   zsh tests/test_ccp_zsh.sh
 set -u
 REPO="${0:A:h:h}"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; W="$(mktemp -d /tmp/ccpw.XXXXXX)"; trap 'rm -rf "$T" "$W"' EXIT   # W = 짧은 경로(기록 폴더 이름 64자 상한)
 
 export HOME="$T/home" XDG_CONFIG_HOME="$T/cfg" PATH="$T/bin:$PATH"
 unset CCP_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME CLAUDE_PROFILES CODEX_PROFILES
@@ -13,7 +13,7 @@ mkdir -p "$HOME/.claude/skills" "$HOME/.claude/plugins" "$HOME/.claude/commands"
 echo '{}' > "$HOME/.claude/settings.json"; : > "$HOME/.codex/config.toml"
 cat > "$T/bin/claude" <<'EOF'
 #!/bin/sh
-echo "claude CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR-<unset>} args=$*"
+echo "claude CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR-<unset>} args=$* pdn=${CLAUDE_CODE_PROJECT_DIR_NAME-<unset>}"
 EOF
 cat > "$T/bin/codex" <<'EOF'
 #!/bin/sh
@@ -124,6 +124,49 @@ printf 'CCP_CLAUDE_ARGS=(--dangerously-skip-permissions --model opus)\n' > "$XDG
 out="$(run 'ccp team')"
 check "CCP_CLAUDE_ARGS 가 claude 인자 앞에 붙는다" "$out" "args=--dangerously-skip-permissions --model opus"
 rm "$XDG_CONFIG_HOME/ccp/config.zsh"
+
+print "워크트리 기록 연동"
+W="${W:A}"
+git -C "$W" init -q main-co 2>/dev/null; MAIN="$W/main-co"
+git -C "$MAIN" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$MAIN" worktree add -q "$W/wt" -b feat 2>/dev/null
+WANT="$(print -r -- "$MAIN" | sed 's/[^A-Za-z0-9]/-/g')"
+out="$(run "cd '$W/wt' && ccp team")"
+check "워크트리에서 띄우면 메인 체크아웃의 기록 폴더 이름을 준다" "$out" "pdn=$WANT"
+out="$(run "cd '$MAIN' && CLAUDE_CODE_PROJECT_DIR_NAME=stale ccp team")"
+check "메인 체크아웃에서는 주지 않는다 (물려받은 값도 지운다)" "$out" "pdn=<unset>"
+out="$(run "cd '$W/wt' && ccp claude:default")"
+check "기본 프로필에는 주지 않는다 (Claude Code 가 CLAUDE_CONFIG_DIR 없이는 안 받는다)" "$out" "pdn=<unset>"
+printf 'CCP_LINK_WORKTREES=0\n' > "$XDG_CONFIG_HOME/ccp/config.zsh"
+out="$(run "cd '$W/wt' && ccp team")"
+check "CCP_LINK_WORKTREES=0 이면 끈다" "$out" "pdn=<unset>"
+rm "$XDG_CONFIG_HOME/ccp/config.zsh"
+
+print "다른 프로필이 잡은 세션"
+mkdir -p "$HOME/.claude-profiles/personal/sessions"
+printf '{"pid":%d,"sessionId":"11111111-2222-3333-4444-555555555555","cwd":"%s","kind":"bg","name":"머지"}' $$ "$W/wt" \
+  > "$HOME/.claude-profiles/personal/sessions/$$.json"
+out="$(run "cd '$W/wt' && ccp team")"
+check "이 폴더의 백그라운드 세션을 다른 프로필이 잡고 있으면 알린다" "$out" "백그라운드 세션 11111111(머지)를 personal 프로필이 잡고 있다"
+check "알리기만 하고 실행은 한다" "$out" "claude CLAUDE_CONFIG_DIR=$HOME/.claude-profiles/team"
+out="$(run "cd '$W/wt' && ccp personal")"
+checkno "자기 프로필 것은 알리지 않는다" "$out" "잡고 있다"
+out="$(run "cd '$MAIN' && ccp team -r 11111111-2222-3333-4444-555555555555")"
+check "-r 로 집은 세션이 다른 프로필에서 열려 있으면 경고" "$out" "세션 11111111 는 지금 personal 프로필에서 열려 있다"
+rm -rf "$HOME/.claude-profiles/personal/sessions"
+
+print "ccp-migrate"
+# 예전 ccp 가 만든 프로필 — file-history 가 심링크가 아니라 진짜 폴더다
+LEG="$HOME/.claude-profiles/legacy"; mkdir -p "$LEG/file-history/s1"; echo v > "$LEG/file-history/s1/f@v1"
+out="$(run 'ccp-migrate -n')"
+check "-n 은 보기만" "$out" "미리 보기"
+[[ ! -L "$LEG/file-history" ]] && check "-n 은 링크를 만들지 않는다" y y || check "-n 은 링크를 만들지 않는다" n y
+out="$(run 'ccp-migrate')"
+[[ -L "$LEG/file-history" && -f "$HOME/.claude/file-history/s1/f@v1" ]] \
+  && check "file-history 를 기본 홈으로 합치고 심링크로 바꾼다" y y || check "file-history 를 기본 홈으로 합치고 심링크로 바꾼다" n y
+rm -rf "$LEG"
+out="$(run 'ccp-new linked >/dev/null; [[ -L $HOME/.claude-profiles/linked/file-history && -L $HOME/.claude-profiles/linked/paste-cache ]] && echo LINKED')"
+check "새 프로필은 처음부터 file-history·paste-cache 를 공유한다" "$out" "LINKED"
 
 print "언어"
 out="$(CCP_LANG=en run 'ccp nope')"

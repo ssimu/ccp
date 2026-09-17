@@ -137,6 +137,12 @@ Install with `install.sh --no-statusline` and it is left untouched.
 **My MCP servers are missing on the new account.**
 MCP settings live in each account's `.claude.json`. Open that account and run `claude mcp add --scope user …` again.
 
+**Launched from a worktree (Orca etc.), `/resume` does not show the conversations from the original folder.**
+Claude Code stores history per working directory. When you launch through a `ccp` profile, a linked worktree shares the history folder of its main checkout. History that already piled up separately: preview with `ccp-migrate -n`, merge with `ccp-migrate` — this also shares `file-history`, so rewind keeps working after you switch accounts. It does not apply to the default profile (plain `claude`) — a Claude Code limitation. Turn it off with `CCP_LINK_WORKTREES=0` in `config.zsh`.
+
+**I want to continue a session another account sent to the background.**
+A background session is held by the daemon of the account that backgrounded it. `ccp` tells you before launching; enter that profile and run `claude attach <id>`. Opening the same session from a second profile tangles the transcript.
+
 ## Troubleshooting
 
 - "command not found: ccp" → open a new terminal or `source ~/.zshrc`

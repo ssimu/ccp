@@ -13,6 +13,8 @@
 #   ccp-rm [--codex] <이름>          프로필 삭제 (로그인만 사라진다. 대화 기록은 공유라 남는다)
 #   ccp-edit [--codex] <이름> [새이름] [새별칭|-]   이름·별칭 수정 (디렉터리도 옮겨 로그인 유지)
 #   ccp-sync         profiles.tsv 에 있는데 디렉터리가 없는 프로필을 만든다
+#   ccp-migrate [-n] 기록 연동 이관(한 번): 프로필마다 따로 쌓인 file-history·paste-cache 를 공유로 합치고,
+#                    워크트리 이름으로 쌓인 대화 기록을 메인 체크아웃 폴더로 옮긴다. -n 은 미리 보기
 #   메뉴 안에서: a 추가 · e 수정 · d 삭제 (끝나면 메뉴로 돌아온다)
 #   ccp-statusline   상태줄 미리보기 (statusline.conf 를 고치면서 확인)
 #   claude           기본 프로필(~/.claude)
@@ -25,7 +27,11 @@
 #
 # 원리(claude): CLAUDE_CONFIG_DIR 은 인증까지 분리한다(빈 디렉터리로 실행하면 Not logged in).
 #   공유(심링크): settings.json skills plugins commands projects(대화 기록)
-#   분리        : .claude.json(인증·MCP)
+#                 file-history(되감기용 파일 백업) paste-cache(붙여넣은 원문) — 계정을 바꿔 이어가도 되감기가 산다
+#   분리        : .claude.json(인증·MCP), sessions/·jobs/·daemon(백그라운드 데몬이 계정 인증에 묶여 있다)
+#   워크트리    : linked worktree(Orca 등)에서 띄우면 CLAUDE_CODE_PROJECT_DIR_NAME 으로 메인 체크아웃의 기록 폴더를
+#                 쓰게 한다 — /resume 에 원래 폴더의 대화가 그대로 나온다. 끄려면 config.zsh 에 CCP_LINK_WORKTREES=0.
+#                 (Claude Code 가 이 변수를 CLAUDE_CONFIG_DIR 이 있을 때만 받아서, 기본 프로필에는 길이 없다.)
 #   ⚠ .claude.json 은 절대 링크하지 말 것 — 링크하면 두 프로필이 같은 계정을 본다.
 #
 # 원리(codex): CODEX_HOME 을 프로필마다 따로 둔다. codex 는 auth.json 에 계정을 하나만 들고 있어서
@@ -191,9 +197,9 @@ _ccp_mkprofile() {
     mkdir -p "$d"
     for item in "${items[@]}"; do [ -e "$HOME/.codex/$item" ] && ln -s "$HOME/.codex/$item" "$d/$item"; done
   else
-    d="$CLAUDE_PROFILES/$name"; items=(settings.json skills plugins commands projects)
+    d="$CLAUDE_PROFILES/$name"; items=(settings.json skills plugins commands projects file-history paste-cache)
     [ -d "$d" ] && return 2
-    mkdir -p "$d"
+    mkdir -p "$d" "$HOME/.claude/file-history" "$HOME/.claude/paste-cache"   # 공유할 곳이 아직 없으면 링크가 안 생긴다
     for item in "${items[@]}"; do [ -e "$HOME/.claude/$item" ] && ln -s "$HOME/.claude/$item" "$d/$item"; done
   fi
   return 0
@@ -321,6 +327,34 @@ ccp-sync() {
   if (( made )); then _ccp_tl z_sync_next
   elif [[ -z "$(_ccp_tsv_rows)" ]]; then _ccp_tl z_sync_empty "$CCP_PROFILES_TSV"
   else _ccp_tl z_sync_all "$CCP_PROFILES_TSV"; fi
+}
+
+# 기록 연동 이관 — 한 번 돌리면 된다(멱등). 무엇을 왜 옮기는지는 ccp_link.py 머리말.
+ccp-migrate() { python3 "$_CCP_HOME/ccp_link.py" migrate "$@" }
+
+# 다른 프로필이 잡고 있는 세션을 실행 전에 알린다. 반환 1 = 사용자가 열지 않기로 했다.
+#   $1 = 띄우려는 프로필 디렉터리(기본 프로필이면 빈 값), 나머지 = claude 에 넘길 인자
+_ccp_held_check() {
+  local me="$1"; shift
+  local rid="" a prev=""
+  for a in "$@"; do
+    case "$a" in --resume=*) rid="${a#--resume=}" ;; esac
+    [[ "$prev" == (-r|--resume) && "$a" != -* ]] && rid="$a"
+    prev="$a"
+  done
+  local -a opt; [[ -n "$rid" ]] && opt=(--resume "$rid")
+  local prof kind sid name ans shown
+  while IFS=$'\t' read -r prof kind sid name; do
+    [[ -z "$sid" ]] && continue
+    shown="$prof"; [[ "$prof" == default ]] && shown="$(_ccp_t default)"
+    if [[ -n "$rid" && "$sid" == "$rid" ]]; then
+      printf '\033[33m%s\033[0m' "$(_ccp_t z_held_resume "${sid[1,8]}" "$shown")" >&2
+      if [ -t 0 ]; then read -r ans; [[ "$ans" == [yY]* ]] || return 1; else printf '\n' >&2; fi
+    else
+      printf '\033[33m%s\033[0m\n' "$(_ccp_t z_held_bg "${sid[1,8]}" "$name" "$shown" "$prof" "${sid[1,8]}")" >&2
+    fi
+  done < <(python3 "$_CCP_HOME/ccp_link.py" owners --me "$me" "${opt[@]}" "$PWD" 2>/dev/null)
+  return 0
 }
 
 # 단축 별칭. TSV 의 별칭 칸이 비어 있지 않은 줄마다 alias <별칭>="ccp <도구>:<이름>".
@@ -462,10 +496,19 @@ ccp() {
     return
   fi
 
+  _ccp_held_check "$dir" "$@" || return 1
+
   # 같은 이유 — 프로필 세션에서 기본을 골라도 현재 프로필로 뜨면 안 된다.
-  if [[ -z "$dir" ]]; then ( unset CLAUDE_CONFIG_DIR; command claude "${CCP_CLAUDE_ARGS[@]}" "$@" ); return; fi
+  if [[ -z "$dir" ]]; then ( unset CLAUDE_CONFIG_DIR CLAUDE_CODE_PROJECT_DIR_NAME; command claude "${CCP_CLAUDE_ARGS[@]}" "$@" ); return; fi
   [ -d "$dir" ] || { _ccp_tl z_no_dir "$dir" >&2; return 1; }
-  CLAUDE_CONFIG_DIR="$dir" command claude "${CCP_CLAUDE_ARGS[@]}" "$@"
+  # 워크트리면 메인 체크아웃의 기록 폴더를 쓴다. 바깥에서 물려받은 값은 쓰지 않는다 — 다른 폴더의 이름일 수 있다.
+  local pname=""
+  [[ "${CCP_LINK_WORKTREES:-1}" != 0 ]] && pname="$(python3 "$_CCP_HOME/ccp_link.py" name "$PWD" 2>/dev/null)"
+  if [[ -n "$pname" ]]; then
+    CLAUDE_CONFIG_DIR="$dir" CLAUDE_CODE_PROJECT_DIR_NAME="$pname" command claude "${CCP_CLAUDE_ARGS[@]}" "$@"
+  else
+    ( unset CLAUDE_CODE_PROJECT_DIR_NAME; CLAUDE_CONFIG_DIR="$dir" command claude "${CCP_CLAUDE_ARGS[@]}" "$@" )
+  fi
 }
 
 # 상태줄 미리보기 — 지금 계정과 예시 한도(주간 38%·세션 12%)로 statusline.conf 를 적용해 그려 본다.

@@ -44,6 +44,9 @@ _CCP_MSG_ko=(
   z_warn_session '  ⏳ 세션 한도 소진 상태다 — 곧 풀리지만 지금은 막힐 수 있다.'
   z_warn_weekly '  ✕ 주간 한도 소진 상태다 — 지금은 못 쓴다.'
   z_warn_nologin '  ✕ 미로그인/조회 실패 — /login 이 필요할 수 있다.'
+  z_held_bg '  ⚠ 이 폴더의 백그라운드 세션 %s(%s)를 %s 프로필이 잡고 있다 — 이어가려면: ccp %s 로 들어가 claude attach %s'
+  z_held_resume '  ⚠ 세션 %s 는 지금 %s 프로필에서 열려 있다 — 두 곳에서 열면 기록이 엉킨다. 그래도 열까? [y/N] '
+  z_migrate_hint '  (프로필 간 되감기 공유·워크트리 기록 합치기: ccp-migrate -n 으로 미리 보고 ccp-migrate)'
   z_no_dir '프로필 디렉터리 없음: %s'
 )
 typeset -gA _CCP_MSG_en
@@ -90,6 +93,9 @@ _CCP_MSG_en=(
   z_warn_session '  ⏳ session quota exhausted — frees soon, but may be blocked right now.'
   z_warn_weekly '  ✕ weekly quota exhausted — unusable for now.'
   z_warn_nologin '  ✕ not logged in / lookup failed — you may need /login.'
+  z_held_bg '  ⚠ background session %s (%s) in this folder is held by profile %s — to continue it: ccp %s, then claude attach %s'
+  z_held_resume '  ⚠ session %s is open right now in profile %s — opening it twice tangles the transcript. Open anyway? [y/N] '
+  z_migrate_hint '  (share rewind data across profiles and merge worktree history: preview with ccp-migrate -n, then ccp-migrate)'
   z_no_dir 'profile directory missing: %s'
 )
 typeset -gA _CCP_MSG_ja
@@ -136,6 +142,9 @@ _CCP_MSG_ja=(
   z_warn_session '  ⏳ セッション上限に達している — まもなく復活するが今は弾かれることがある。'
   z_warn_weekly '  ✕ 週間上限に達している — 今は使えない。'
   z_warn_nologin '  ✕ 未ログイン/取得失敗 — /login が必要かもしれない。'
+  z_held_bg '  ⚠ このフォルダのバックグラウンドセッション %s(%s) は %s プロファイルが保持中 — 続けるには: ccp %s で入り claude attach %s'
+  z_held_resume '  ⚠ セッション %s は今 %s プロファイルで開かれている — 二重に開くと履歴が絡む。それでも開く? [y/N] '
+  z_migrate_hint '  (プロファイル間の巻き戻し共有・ワークツリー履歴の統合: ccp-migrate -n で確認後 ccp-migrate)'
   z_no_dir 'プロファイルのディレクトリがない: %s'
 )
 typeset -gA _CCP_MSG_zh
@@ -182,6 +191,9 @@ _CCP_MSG_zh=(
   z_warn_session '  ⏳ 会话额度已用尽 — 很快恢复，但现在可能被拒。'
   z_warn_weekly '  ✕ 周额度已用尽 — 现在无法使用。'
   z_warn_nologin '  ✕ 未登录/查询失败 — 可能需要 /login。'
+  z_held_bg '  ⚠ 此文件夹的后台会话 %s(%s) 由配置 %s 持有 — 要继续: ccp %s 后执行 claude attach %s'
+  z_held_resume '  ⚠ 会话 %s 正在配置 %s 中打开 — 同时打开两处会弄乱记录。仍要打开? [y/N] '
+  z_migrate_hint '  (跨配置共享回退数据并合并工作树记录: 先 ccp-migrate -n 预览，再 ccp-migrate)'
   z_no_dir '配置目录不存在: %s'
 )
 
