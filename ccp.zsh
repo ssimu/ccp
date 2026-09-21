@@ -3,7 +3,10 @@
 #   ccp              메뉴에서 고른다 (claude·codex 계정을 한 화면에, 사용량·추천 함께 표시)
 #                    ↑↓(j/k) 이동 · 숫자 키로 해당 번호 · Enter 실행 · v 그래프/표 전환 · Esc/q 취소
 #                    엔터만 치면 추천 계정으로 바로 실행
-#                    기본은 새 대화. -c/--continue, -r/--resume 을 직접 주면 그대로 전달
+#                    계정을 고르면 이 폴더(와 같은 저장소의 워크트리)에서 나눈 대화 목록이 뜬다:
+#                    번호 = 그 대화를 이 계정으로 가져와 연다(복사본) · Enter = 새 대화 · q = 취소
+#                    -c/--continue, -r/--resume 을 직접 주면 목록 없이 그대로 전달. 끄려면 config.zsh 에 CCP_PICK_SESSION=0
+#   ccp 2 --take [ID]  묻지 않고 가져온다 — ID(앞자리면 충분) 없으면 가장 최근 대화
 #   ccp 2            번호로 바로
 #   ccp team         이름으로 (Tab 완성). 양쪽에 같은 이름이 있으면 codex:team 처럼 도구를 붙인다
 #   ccp-ls           프로필 + 계정/조직
@@ -413,6 +416,79 @@ _ccp_find() {
 # 이전엔 대화 기록이 있으면 --continue 를 자동으로 붙였는데, 기록 존재 판정(~/.claude/projects)과
 # 실제 프로필이 보는 위치가 어긋나 "No conversation found" 로 죽는 일이 반복됐다 (2026-09-05 제거).
 #   이어가기: ccp 1 -c   /   특정 세션: ccp 1 -r <id>
+#
+# 대신 계정을 고른 뒤 이 폴더의 대화 목록을 보이고, 고른 것을 **복사본으로** 가져온다(--resume <기록 파일> --fork-session).
+# -r 로 같은 세션을 그냥 열면 두 계정이 한 기록을 같이 쓰게 되고, 백그라운드로 넘어간 세션은 제목만 있는 껍데기라
+# 이전 대화가 통째로 빠진 채 열린다(2026-09-21 겪음). 복사본은 원본을 건드리지 않고 마지막 압축 이후 대화를 다 싣는다.
+#   CCP_PICK_SESSION: 1(기본) = 터미널이면 목록을 보인다 · 0 = 안 보인다 · always = 파이프여도 보인다(테스트용)
+#   CCP_PICK_N: 목록 개수(기본 8)
+# $1 = 프로필 디렉터리('' = 기본), $2 = 보이는 프로필 이름, 나머지 = claude 인자.
+# 결과: _CCP_TAKE = (--resume <경로> --fork-session) 또는 빈 배열, _CCP_REST = 남은 인자.
+# 반환 0 = 계속, 1 = 오류라 열지 않는다, 3 = 사용자가 취소했다(오류 아님).
+_ccp_take() {
+  local dir="$1" shown="$2"; shift 2
+  _CCP_TAKE=(); _CCP_REST=()
+  local -a args; args=("$@")
+  local take=0 tid="" sess=0 a i=1 n=${#args}
+  while (( i <= n )); do
+    a="${args[i]}"
+    if [[ "$a" == --take ]]; then
+      take=1
+      if (( i < n )) && [[ "${args[i+1]}" != -* ]]; then tid="${args[i+1]}"; (( i++ )); fi   # 다음 인자가 옵션이 아니면 ID
+    elif [[ "$a" == --take=* ]]; then take=1; tid="${a#--take=}"
+    else
+      [[ "$a" == (-c|--continue|-r|--resume|--resume=*|--session-id|-p|--print) ]] && sess=1
+      _CCP_REST+=("$a")
+    fi
+    (( i++ ))
+  done
+  local link="$_CCP_HOME/ccp_link.py" row rc
+  if (( take )); then
+    if [[ -n "$tid" ]]; then
+      row="$(python3 "$link" sessions --me "$dir" --id "$tid" "$PWD" 2>&1)"; rc=$?
+      case $rc in
+        1) _ccp_tl z_take_none "$tid" >&2; return 1 ;;
+        2) _ccp_tl z_take_ambig "$tid" "$row" >&2; return 1 ;;
+        0) ;;
+        *) return 1 ;;
+      esac
+    else
+      row="$(python3 "$link" sessions --me "$dir" -n 1 "$PWD" 2>/dev/null)"
+      [[ -z "$row" ]] && { _ccp_tl z_take_empty >&2; return 0; }
+    fi
+  elif (( ! sess )) && [[ "${CCP_PICK_SESSION:-1}" != 0 ]] && { [ -t 0 ] || [[ "${CCP_PICK_SESSION:-}" == always ]]; }; then
+    local -a rows; rows=("${(@f)$(python3 "$link" sessions --me "$dir" -n "${CCP_PICK_N:-8}" "$PWD" 2>/dev/null)}")
+    [[ -z "${rows[1]:-}" ]] && return 0
+    local -a f; local sid when branch title holder cont k=0 ans
+    _ccp_tl z_pick_head "$shown"
+    for row in "${rows[@]}"; do
+      f=("${(@ps:\t:)row}")   # read 는 빈 칸을 접어 열이 밀린다 — 탭으로 그대로 자른다
+      sid="${f[2]}" when="${f[3]}" branch="${f[4]}" title="${f[5]}" holder="${f[6]}" cont="${f[8]}"
+      (( k++ ))
+      printf '  %d) %s  %s  [%s]  %s' "$k" "${sid[1,8]}" "$when" "$branch" "$title"
+      [[ -n "$holder" ]] && { printf ' '; _ccp_t z_pick_held_mark "$( [[ "$holder" == default ]] && _ccp_t default || print -r -- "$holder" )"; }
+      [[ -n "$cont" ]] && { printf ' '; _ccp_t z_pick_cont_mark "${cont[1,8]}"; }
+      printf '\n'
+    done
+    _ccp_t z_pick_prompt; read -r ans || ans=""
+    [[ -z "$ans" ]] && return 0
+    [[ "$ans" == [qQ] ]] && return 3
+    [[ "$ans" == <-> ]] && (( ans >= 1 && ans <= ${#rows} )) || { _ccp_tl z_out_of_range "$ans" >&2; return 1; }
+    row="${rows[ans]}"
+  else
+    return 0
+  fi
+  local -a f; f=("${(@ps:\t:)row}")
+  local path="${f[1]}" sid="${f[2]}" title="${f[5]}" holder="${f[6]}"
+  [[ -z "$path" ]] && return 0
+  _ccp_tl z_take_start "${sid[1,8]}" "$title" "$shown"
+  if [[ -n "$holder" ]]; then
+    local hshown="$holder"; [[ "$holder" == default ]] && hshown="$(_ccp_t default)"
+    printf '\033[33m%s\033[0m\n' "$(_ccp_t z_take_held "$hshown" "$holder" "${sid[1,8]}")" >&2
+  fi
+  _CCP_TAKE=(--resume "$path" --fork-session)
+  return 0
+}
 
 ccp() {
   _ccp_entries
@@ -487,16 +563,23 @@ ccp() {
     3) printf '\033[31m%s\033[0m\n' "$(_ccp_t z_warn_nologin)" ;;
   esac
 
-  local tool="${_CCP_TOOLS[$((idx+1))]}" dir="${_CCP_DIRS[$((idx+1))]}"
+  local tool="${_CCP_TOOLS[$((idx+1))]}" dir="${_CCP_DIRS[$((idx+1))]}" shown="${_CCP_NAMES[$((idx+1))]}"
 
   if [[ "$tool" == codex ]]; then
+    (( ${@[(I)--take|--take=*]} )) && { _ccp_tl z_take_codex >&2; return 1; }
     # 기본 홈은 CODEX_HOME 을 지워서 연다 — 프로필 세션 안에서 기본을 골랐을 때 현재 프로필이 뜨면 안 된다.
     if [[ -z "$dir" || "$dir" == "$HOME/.codex" ]]; then ( unset CODEX_HOME; command codex "$@" )
     else CODEX_HOME="$dir" command codex "$@"; fi
     return
   fi
 
-  _ccp_held_check "$dir" "$@" || return 1
+  # 이 폴더의 대화를 골라 복사본으로 가져오기(또는 --take). 가져올 때는 "다른 프로필이 잡고 있다" 확인을 따로 묻지 않는다 — 복사본이라 엉키지 않는다.
+  local -a _CCP_TAKE _CCP_REST
+  _ccp_take "$dir" "$shown" "$@"; local trc=$?
+  (( trc == 3 )) && return 0
+  (( trc )) && return 1
+  set -- "${_CCP_TAKE[@]}" "${_CCP_REST[@]}"
+  (( ${#_CCP_TAKE} )) || { _ccp_held_check "$dir" "$@" || return 1; }
 
   # 같은 이유 — 프로필 세션에서 기본을 골라도 현재 프로필로 뜨면 안 된다.
   if [[ -z "$dir" ]]; then ( unset CLAUDE_CONFIG_DIR CLAUDE_CODE_PROJECT_DIR_NAME; command claude "${CCP_CLAUDE_ARGS[@]}" "$@" ); return; fi

@@ -52,13 +52,18 @@ Do not add the `~/.claude` account you already use. It is always item 0.
 | Type this | And this happens |
 |---|---|
 | `ccp` | The menu. Arrow keys to choose, Enter to open. **Just Enter opens the recommended account** |
-| `ccp team` or `cct` | Straight into that account |
-| `ccp team -c` | That account, **continuing your last conversation**. This is the one you use when a quota runs out |
+| `ccp team` or `cct` | Straight into that account. A list of **conversations from this folder** comes first — a number brings that one over and continues it, Enter starts fresh |
+| `ccp team --take` | No questions: **bring over the latest conversation** and continue. This is the one you use when a quota runs out. `--take f7745fb0` picks one by ID prefix |
+| `ccp team -c` / `-r <id>` | Claude Code's own continue/resume flags, passed through (no list). Two accounts then write the same transcript, so the bring-over above is usually better |
 | `ccp-usage` | Remaining quota only, no menu |
 | `ccp-ls` | Who is logged in where |
 | `ccp-new name alias` | One more account |
 | `ccp-edit name new-name new-alias` | Rename / change alias. The folder moves too, so the login is kept |
 | `ccp-rm name` | Remove an account. Only its login goes away; history stays |
+
+The list also includes conversations from other worktrees of the same repository (Orca etc.), and marks conversations held by another account or continued in another session.
+Bringing over is a copy (Claude Code's `--fork-session`): the original is untouched, nothing tangles even if it is still open on the other account, and everything since the last compaction comes along.
+Turn the list off with `CCP_PICK_SESSION=0` in `~/.config/ccp/config.zsh`; `CCP_PICK_N=12` changes how many are shown.
 
 In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` toggles graph and table, `q` leaves.
 You can also manage accounts right there: `a` adds one, `e` on the selected line renames it or changes its alias, `d` removes it. Answer a few prompts and you are back in the menu.
@@ -78,7 +83,7 @@ so ccp shows its cached `/usage` lookup as `Fable ███┃░░ 47%`, refre
 
 **Do I lose my conversation when I switch?**
 No. History, settings and skills are shared by all accounts; only the login differs.
-When a quota runs out, `ccp team -c` on another account continues the same conversation. That is the main use case.
+When a quota runs out, `ccp team` opens another account and you pick the conversation from the list (or `ccp team --take`). That is the main use case.
 
 **Does checking the quota cost credits or tokens?**
 No. None of the three paths calls a model.
@@ -141,7 +146,9 @@ MCP settings live in each account's `.claude.json`. Open that account and run `c
 Claude Code stores history per working directory. When you launch through a `ccp` profile, a linked worktree shares the history folder of its main checkout. History that already piled up separately: preview with `ccp-migrate -n`, merge with `ccp-migrate` — this also shares `file-history`, so rewind keeps working after you switch accounts. It does not apply to the default profile (plain `claude`) — a Claude Code limitation. Turn it off with `CCP_LINK_WORKTREES=0` in `config.zsh`.
 
 **I want to continue a session another account sent to the background.**
-A background session is held by the daemon of the account that backgrounded it. `ccp` tells you before launching; enter that profile and run `claude attach <id>`. Opening the same session from a second profile tangles the transcript.
+Just `ccp team` and pick it from the list (or `ccp team --take <id>`). It comes over as a copy, so nothing tangles even though the other account's daemon still holds the original.
+One catch: the session created by backgrounding is an **empty shell with only a title** until it receives its first prompt. Picking that one in Claude Code's `/resume` opens a conversation with all the history missing. The ccp list skips shells and marks the original as "continued in …" — pick the original.
+Clean up the leftover background worker as ccp suggests: `ccp <that profile>`, then `claude stop <id>`.
 
 ## Troubleshooting
 

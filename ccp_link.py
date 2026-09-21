@@ -17,6 +17,10 @@ Claude Code 는 기록을 `<설정 디렉터리>/projects/<실행 폴더 경로�
   ccp_link.py name [폴더]                         워크트리면 메인 체크아웃의 폴더 이름, 아니면 출력 없음
   ccp_link.py owners --me <설정디렉터리|''> [--resume <세션ID>] [폴더]
                                                  다른 프로필이 잡은 세션을 TSV(프로필·종류·세션ID·이름)로
+  ccp_link.py sessions --me <설정디렉터리|''> [-n N] [--id <세션ID 앞자리>] [폴더]
+                                                 이 폴더(와 같은 저장소의 다른 워크트리)에서 나눈 대화를 최근순 TSV 로:
+                                                 경로·세션ID·시각·브랜치·제목·잡은 프로필·종류·이어진 세션.
+                                                 --id 는 앞자리로 하나를 집는다(없으면 1, 여럿이면 2 로 끝나며 후보를 stderr 에)
   ccp_link.py migrate [-n]                        기존 프로필·기존 워크트리 기록을 한 번 옮긴다(-n 은 보기만)
   ccp_link.py migrate [-n] --map <기록폴더이름> <메인 체크아웃 경로>
                                                  이미 지워진 워크트리의 기록 — git 에 물을 수 없으니 어디로 합칠지 직접 알려 준다
@@ -185,6 +189,166 @@ def owners(base, profs, cwd, me="", resume=None):
     return sorted(got)
 
 
+
+# ── 이 폴더의 대화 목록 — 계정을 바꿔 가져오기(fork) 위해 ─────────────────────
+HEAD_BYTES, TAIL_BYTES = 65536, 262144     # 기록은 수십 MB 까지 크다. 앞뒤만 읽어도 제목·브랜치·이어짐은 다 나온다
+TITLE_LEN = 40
+
+
+def session_folders(base, cwd):
+    """cwd 의 대화가 쌓여 있을 수 있는 기록 폴더들 — 자기 폴더, 메인 체크아웃 폴더, 같은 저장소의 다른 워크트리 폴더.
+
+    Orca 같은 도구는 브랜치마다 워크트리를 만들어 거기서 대화하므로, 메인에서 띄워도 그 대화들을 고를 수 있어야 한다.
+    """
+    cwd = real(cwd)
+    names = [encode(cwd)]
+    pn = project_name(cwd)
+    if pn:
+        names.append(pn)
+    try:
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5)
+        top = real(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+        if top:
+            rel = os.path.relpath(cwd, top)
+            r = subprocess.run(["git", "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=5)
+            for line in r.stdout.splitlines():
+                if line.startswith("worktree "):
+                    w = real(line[len("worktree "):])
+                    names.append(encode(w if rel == "." else os.path.join(w, rel)))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    out, seen = [], set()
+    for n in names:
+        p = os.path.join(str(base), "projects", n)
+        if n not in seen and os.path.isdir(p):
+            seen.add(n)
+            out.append(p)
+    return out
+
+
+def _ends(path):
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        head = fh.read(HEAD_BYTES)
+        if size > HEAD_BYTES + TAIL_BYTES:
+            fh.seek(size - TAIL_BYTES)
+            tail = fh.read()
+        else:
+            tail = head + fh.read()
+    return head.decode("utf-8", "replace"), tail.decode("utf-8", "replace")
+
+
+def _text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def _one_line(s):
+    return " ".join(str(s).split())[:TITLE_LEN]
+
+
+def scan_session(path):
+    """기록 파일 하나 → {sid, path, mtime, title, branch, continued_in}. 대화 행이 없는 껍데기면 None.
+
+    껍데기: 세션을 백그라운드로 넘길 때 Claude Code 가 제목만 적어 둔 파일. 그걸 이어받으면 빈 대화가 열린다.
+    """
+    try:
+        head, tail = _ends(path)
+    except OSError:
+        return None
+    if '"parentUuid"' not in head and '"parentUuid"' not in tail:
+        return None
+    info = {"path": path, "sid": os.path.basename(path)[:-len(".jsonl")], "mtime": os.path.getmtime(path),
+            "title": "", "branch": "", "continued_in": ""}
+    for line in reversed(tail.splitlines()):          # 마지막 줄부터 — 제목·브랜치는 최신 것이 맞다
+        if not info["title"] and '"aiTitle"' in line:            # 키 이름으로 건다 — 콜론 뒤 공백 유무에 흔들리지 않게
+            info["title"] = _one_line(_field(line, "aiTitle"))
+        if not info["branch"] and '"gitBranch"' in line:
+            info["branch"] = _one_line(_field(line, "gitBranch"))
+        if not info["continued_in"] and '"continuedInSessionId"' in line:
+            info["continued_in"] = _field(line, "continuedInSessionId")
+        if info["title"] and info["branch"] and info["continued_in"]:
+            break
+    if not info["title"] or not info["branch"]:
+        for line in head.splitlines():
+            if not info["branch"] and '"gitBranch"' in line:
+                info["branch"] = _one_line(_field(line, "gitBranch"))
+            if not info["title"] and '"user"' in line:
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if o.get("type") != "user" or o.get("isMeta") or o.get("isCompactSummary"):
+                    continue
+                txt = _text((o.get("message") or {}).get("content")).strip()
+                if txt and not txt.startswith("<"):   # <local-command-…> 같은 내부 표식은 제목이 아니다
+                    info["title"] = _one_line(txt)
+            if info["title"] and info["branch"]:
+                break
+    return info
+
+
+def _field(line, key):
+    try:
+        v = json.loads(line).get(key)
+    except ValueError:
+        return ""
+    return v if isinstance(v, str) else ""
+
+
+def sessions(base, profs, cwd, me="", limit=10):
+    """이 폴더에서 나눈 대화, 최근순. holder = 지금 띄우려는 프로필(me) 말고 다른 프로필이 잡고 있으면 그 이름."""
+    me = real(me) if me else real(base)
+    held = {}
+    for label, cfg, o in live_sessions(base, profs):
+        if real(cfg) != me and o.get("sessionId"):
+            held[o["sessionId"]] = (label, o.get("kind") or "")
+    files = []
+    for folder in session_folders(base, cwd):
+        for f in os.listdir(folder):
+            if f.endswith(".jsonl"):
+                p = os.path.join(folder, f)
+                try:
+                    files.append((os.path.getmtime(p), p))
+                except OSError:
+                    pass
+    out = []
+    for _, p in sorted(files, reverse=True):
+        info = scan_session(p)
+        if not info:
+            continue
+        info["holder"], info["holder_kind"] = held.get(info["sid"], ("", ""))
+        out.append(info)
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
+def resolve_session(base, profs, cwd, prefix):
+    """세션 ID(앞자리도 됨) → (기록 파일 경로, []) . 없으면 (None, []), 여럿이면 (None, [앞 8자…])."""
+    hits = []
+    for folder in session_folders(base, cwd):
+        for f in os.listdir(folder):
+            if f.endswith(".jsonl") and f[:-len(".jsonl")].startswith(prefix):
+                hits.append(os.path.join(folder, f))
+    exact = [h for h in hits if os.path.basename(h)[:-len(".jsonl")] == prefix]
+    if exact:
+        return exact[0], []
+    if len(hits) == 1:
+        return hits[0], []
+    return None, [os.path.basename(h)[:8] for h in hits]
+
+
+def session_row(info):
+    import time
+    when = time.strftime("%m-%d %H:%M", time.localtime(info["mtime"]))
+    return "\t".join([info["path"], info["sid"], when, info["branch"], info["title"],
+                      info["holder"], info["holder_kind"], info["continued_in"]])
+
+
 # ── 워크트리 기록 이관 ───────────────────────────────────────────────────
 def folder_cwd(folder):
     """그 기록 폴더의 세션들이 처음 뜬 실행 폴더. 최근 파일부터 앞 200줄만 본다."""
@@ -273,6 +437,37 @@ def main(argv):
                 cwd = a
         for row in owners(base_dir(), profiles_dir(), cwd, me=me, resume=resume):
             print("\t".join(row))
+        return 0
+    if cmd == "sessions":
+        me, n, sid, cwd = "", 10, None, os.getcwd()
+        it = iter(rest)
+        for a in it:
+            if a == "--me":
+                me = next(it, "")
+            elif a == "-n":
+                n = int(next(it, "10") or 10)
+            elif a == "--id":
+                sid = next(it, None)
+            else:
+                cwd = a
+        base, profs = base_dir(), profiles_dir()
+        if sid is not None:
+            path, more = resolve_session(base, profs, cwd, sid)
+            if path is None:
+                if more:
+                    print(" ".join(sorted(more)), file=sys.stderr)
+                    return 2
+                return 1
+            info = scan_session(path)
+            if not info:
+                return 1
+            held = {o.get("sessionId"): (label, o.get("kind") or "") for label, cfg, o in live_sessions(base, profs)
+                    if real(cfg) != (real(me) if me else real(base))}
+            info["holder"], info["holder_kind"] = held.get(info["sid"], ("", ""))
+            print(session_row(info))
+            return 0
+        for info in sessions(base, profs, cwd, me=me, limit=n):
+            print(session_row(info))
         return 0
     if cmd == "migrate":
         dry = "-n" in rest or "--dry-run" in rest

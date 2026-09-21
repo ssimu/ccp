@@ -229,3 +229,152 @@ def test_이어가려는_세션이_다른_프로필에서_살아_있으면_종�
     live(base, os.getpid(), "abc-123", "/elsewhere", kind="interactive", name="x")
     got = ccp_link.owners(base, profs, str(tmp_path), me=str(profs / "b"), resume="abc-123")
     assert got == [("default", "interactive", "abc-123", "x")]
+
+
+# ── 이 폴더의 대화 목록 (계정을 바꿔 가져오기) ─────────────────────────────
+def transcript(folder, sid, *, title=None, branch="main", prompt="첫 질문", content=True,
+               continued_in=None, mtime=None, cwd="/w"):
+    """가짜 대화 기록. content=False 면 Claude Code 가 백그라운드로 넘길 때 만드는 '제목만 있는 껍데기'."""
+    folder.mkdir(parents=True, exist_ok=True)
+    rows = []
+    if title:
+        rows.append({"type": "ai-title", "aiTitle": title, "sessionId": sid})
+    if content:
+        rows.append({"type": "user", "parentUuid": None, "uuid": "u1", "sessionId": sid, "cwd": cwd,
+                     "gitBranch": branch, "timestamp": "2026-09-21T04:00:00.000Z",
+                     "message": {"role": "user", "content": prompt}})
+        rows.append({"type": "assistant", "parentUuid": "u1", "uuid": "a1", "sessionId": sid, "cwd": cwd,
+                     "gitBranch": branch, "timestamp": "2026-09-21T04:00:01.000Z",
+                     "message": {"role": "assistant", "content": [{"type": "text", "text": "답"}]}})
+    if continued_in:
+        rows.append({"type": "continued-in", "sessionId": sid, "continuedInSessionId": continued_in})
+    p = folder / f"{sid}.jsonl"
+    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
+    if mtime:
+        os.utime(p, (mtime, mtime))
+    return p
+
+
+SID1 = "f7745fb0-c595-4ea1-a7dc-6df3fc6abc94"
+SID2 = "ddc14aa5-38a1-4c1d-815f-6a3d21c951e3"
+SID3 = "76b78e19-0abb-4072-98d0-d536f5f1c1b8"
+
+
+def test_이_폴더의_대화를_최근순으로_낸다(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="옛 대화", mtime=1000)
+    transcript(folder, SID3, title="새 대화", mtime=2000)
+    got = ccp_link.sessions(base, profs, str(cwd))
+    assert [s["sid"] for s in got] == [SID3, SID1]
+    assert got[0]["title"] == "새 대화" and got[0]["branch"] == "main"
+    assert got[0]["path"] == str(folder / f"{SID3}.jsonl")
+
+
+def test_제목이_없으면_첫_질문을_제목으로(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, prompt="이 저장소의 테스트를 고쳐 줘")
+    assert ccp_link.sessions(base, profs, str(cwd))[0]["title"] == "이 저장소의 테스트를 고쳐 줘"
+
+
+def test_대화_행이_없는_껍데기는_뺀다(homes, tmp_path):
+    """백그라운드로 넘어간 세션은 제목만 있는 파일이 먼저 생긴다 — 그걸 고르면 빈 대화가 열린다."""
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="원본", mtime=1000)
+    transcript(folder, SID2, title="껍데기", content=False, mtime=2000)
+    assert [s["sid"] for s in ccp_link.sessions(base, profs, str(cwd))] == [SID1]
+
+
+def test_다른_프로필이_잡고_있으면_누가_잡았는지_표시(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="원본")
+    (profs / "a" / "sessions").mkdir()
+    (profs / "a" / "sessions" / "1.json").write_text(json.dumps(
+        {"pid": os.getpid(), "sessionId": SID1, "cwd": str(cwd), "kind": "bg", "name": "원본"}))
+    got = ccp_link.sessions(base, profs, str(cwd), me=str(profs / "b"))
+    assert got[0]["holder"] == "a" and got[0]["holder_kind"] == "bg"
+    assert ccp_link.sessions(base, profs, str(cwd), me=str(profs / "a"))[0]["holder"] == ""
+
+
+def test_이어진_세션은_어디로_이어졌는지_표시(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="원본", continued_in=SID2)
+    assert ccp_link.sessions(base, profs, str(cwd))[0]["continued_in"] == SID2
+
+
+def test_같은_저장소의_워크트리_대화도_함께_나온다(repo, homes):
+    """Orca 워크트리에서 나눈 대화는 다른 기록 폴더에 있다 — 메인에서 띄워도 고를 수 있어야 한다. 반대도 같다."""
+    base, profs = homes
+    main, wt = repo
+    transcript(base / "projects" / ccp_link.encode(str(main)), SID1, title="메인 대화", branch="main", mtime=1000)
+    transcript(base / "projects" / ccp_link.encode(str(wt)), SID3, title="브랜치 대화", branch="feat", mtime=2000)
+    got = ccp_link.sessions(base, profs, str(main))
+    assert [(s["sid"], s["branch"]) for s in got] == [(SID3, "feat"), (SID1, "main")]
+    got = ccp_link.sessions(base, profs, str(wt))
+    assert [s["sid"] for s in got] == [SID3, SID1]
+
+
+def test_개수를_제한한다(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    for i in range(5):
+        transcript(folder, f"0000000{i}-0000-0000-0000-000000000000", mtime=1000 + i)
+    assert len(ccp_link.sessions(base, profs, str(cwd), limit=3)) == 3
+
+
+def test_세션_ID_앞자리로_찾는다(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    p1 = transcript(folder, SID1); transcript(folder, SID3)
+    assert ccp_link.resolve_session(base, profs, str(cwd), "f7745fb0") == (str(p1), [])
+    assert ccp_link.resolve_session(base, profs, str(cwd), SID1) == (str(p1), [])
+    path, matches = ccp_link.resolve_session(base, profs, str(cwd), "zzz")
+    assert path is None and matches == []
+
+
+def test_앞자리가_여럿과_맞으면_후보를_돌려준다(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, "aaaa1111-0000-0000-0000-000000000000"); transcript(folder, "aaaa2222-0000-0000-0000-000000000000")
+    path, matches = ccp_link.resolve_session(base, profs, str(cwd), "aaaa")
+    assert path is None and sorted(matches) == ["aaaa1111", "aaaa2222"]
+
+
+def test_sessions_명령은_TSV_로_낸다(homes, tmp_path, capsys, monkeypatch):
+    base, profs = homes
+    monkeypatch.setattr(ccp_link, "base_dir", lambda: str(base))
+    monkeypatch.setattr(ccp_link, "profiles_dir", lambda: str(profs))
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="원본", branch="feat", continued_in=SID2)
+    assert ccp_link.main(["sessions", "--me", str(profs / "b"), "-n", "5", str(cwd)]) == 0
+    cols = capsys.readouterr().out.rstrip("\n").split("\t")
+    assert cols[0] == str(folder / f"{SID1}.jsonl") and cols[1] == SID1
+    assert cols[3] == "feat" and cols[4] == "원본" and cols[5] == "" and cols[7] == SID2
+
+
+def test_sessions_id_는_하나면_0_없으면_1_여럿이면_2(homes, tmp_path, capsys, monkeypatch):
+    base, profs = homes
+    monkeypatch.setattr(ccp_link, "base_dir", lambda: str(base))
+    monkeypatch.setattr(ccp_link, "profiles_dir", lambda: str(profs))
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, "aaaa1111-0000-0000-0000-000000000000", title="하나")
+    transcript(folder, "aaaa2222-0000-0000-0000-000000000000", title="둘")
+    assert ccp_link.main(["sessions", "--id", "aaaa1111", str(cwd)]) == 0
+    assert capsys.readouterr().out.split("\t")[4] == "하나"
+    assert ccp_link.main(["sessions", "--id", "zzzz", str(cwd)]) == 1
+    assert ccp_link.main(["sessions", "--id", "aaaa", str(cwd)]) == 2
+    assert capsys.readouterr().err.strip() == "aaaa1111 aaaa2222"

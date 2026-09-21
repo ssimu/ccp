@@ -83,7 +83,10 @@ ccp                 메뉴. ↑↓/j k 이동 · 숫자 = 그 번호 · Enter �
                     엔터만 치면 추천 계정으로 바로 실행
 ccp 2               번호로 바로
 ccp team            이름으로 (Tab 완성). 양쪽 도구에 같은 이름이 있으면 claude:team / codex:team
-ccp team -c         뒤의 인자는 그대로 claude 에 전달 (-c 이어가기, -r <id> 특정 세션 …)
+                    계정을 고르면 이 폴더(와 같은 저장소의 워크트리)에서 나눈 대화 목록이 뜬다:
+                    번호 = 그 대화를 복사본으로 가져와 이어가기 · Enter = 새 대화 · q 취소
+ccp team --take [ID] 묻지 않고 가져오기(ID 없으면 가장 최근). ID 는 앞자리면 된다
+ccp team -c         뒤의 인자는 그대로 claude 에 전달 (-c/-r 을 주면 목록은 건너뛴다)
 cct                 profiles.tsv 의 별칭 = ccp claude:team
 
 ccp-ls              프로필마다 로그인한 계정·조직
@@ -111,7 +114,11 @@ Codex 는 `codex app-server` 의 JSON-RPC 로 읽는다(1초, 토큰 0).
 | 공유(심링크) | `settings.json` `skills` `plugins` `commands` **`projects`(대화 기록)** |
 
 - ⚠ **`.claude.json` 은 절대 심링크하지 말 것.** 인증과 MCP 가 한 파일이라 링크하면 두 프로필이 같은 계정을 본다.
-- ⚠ **`projects` 는 반드시 공유할 것.** 한도가 차서 계정을 바꾸는 순간 `-c` 로 대화를 이어가는 게 전환의 핵심이다.
+- ⚠ **`projects` 는 반드시 공유할 것.** 한도가 차서 계정을 바꾸는 순간 대화를 이어가는 게 전환의 핵심이다.
+- 이어가기는 **복사본**으로 한다(`--resume <기록 파일> --fork-session`). 같은 세션 ID 를 두 계정이 그냥 열면 한 기록에 둘이 쓰고,
+  백그라운드로 넘어간 세션은 첫 프롬프트 전까지 제목만 있는 껍데기라 `-r` 로 열면 이전 대화가 통째로 빠진다(2026-09-21 겪음).
+  목록은 `ccp_link.py sessions` 가 기록 파일의 앞뒤 일부만 읽어 만든다(수십 MB 기록 100여 개도 0.2초).
+  껍데기(대화 행 없음)는 빼고, 다른 프로필이 잡은 것(`sessions/*.json`)과 다른 세션으로 이어진 것(`continued-in`)은 표시만 한다.
 - ⚠ 프로필 세션 안에서는 `CLAUDE_CONFIG_DIR` 이 환경에 남아 자식 프로세스가 물려받는다. ccp 는 "기본"을 고르면
   서브셸에서 `unset` 하고 띄운다.
 - MCP 서버는 `.claude.json` 에 들어 있어 **프로필마다 따로** 등록·인증해야 한다 (`claude mcp add --scope user …`).

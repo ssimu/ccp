@@ -13,7 +13,12 @@ A profile is `~/.claude-profiles/<name>/`. Inside it, only `.claude.json` (auth 
 | Shared (symlink) | `settings.json` `skills` `plugins` `commands` **`projects` (conversation history)** |
 
 - ⚠ **Never symlink `.claude.json`.** Auth and MCP live in the same file; linking it makes two profiles see the same account.
-- ⚠ **Always share `projects`.** The whole point of switching when a quota runs out is continuing the conversation with `-c`.
+- ⚠ **Always share `projects`.** The whole point of switching when a quota runs out is continuing the conversation.
+- Continuing is done as a **copy** (`--resume <transcript file> --fork-session`). Opening the same session ID from two accounts makes both write one transcript,
+  and a session that was sent to the background is an empty shell (title only) until its first prompt — resuming it with `-r` drops the whole history (seen 2026-09-21).
+  After you pick an account, ccp lists this folder's conversations (plus other worktrees of the same repo); `ccp_link.py sessions` builds it from the head and tail of each transcript
+  (a hundred multi-MB transcripts in ~0.2 s), skips shells, and only marks sessions held by another profile (`sessions/*.json`) or continued elsewhere (`continued-in`).
+  `ccp <profile> --take [ID]` does the same without asking.
 - ⚠ Inside a profile session `CLAUDE_CONFIG_DIR` stays in the environment and child processes inherit it. When you pick "default", ccp `unset`s it in a subshell first.
 - MCP servers are stored in `.claude.json`, so they must be registered and authenticated **per profile** (`claude mcp add --scope user …`).
 
