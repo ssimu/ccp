@@ -19,7 +19,7 @@ Claude Code 는 기록을 `<설정 디렉터리>/projects/<실행 폴더 경로�
                                                  다른 프로필이 잡은 세션을 TSV(프로필·종류·세션ID·이름)로
   ccp_link.py sessions --me <설정디렉터리|''> [-n N] [--id <세션ID 앞자리>] [폴더]
                                                  이 폴더(와 같은 저장소의 다른 워크트리)에서 나눈 대화를 최근순 TSV 로:
-                                                 경로·세션ID·시각·브랜치·제목·잡은 프로필·종류·이어진 세션.
+                                                 경로·세션ID·시각·브랜치·제목·잡은 프로필·종류·이어진 세션·크기·내 계정에서 열림·수정 epoch.
                                                  --id 는 앞자리로 하나를 집는다(없으면 1, 여럿이면 2 로 끝나며 후보를 stderr 에)
   ccp_link.py migrate [-n]                        기존 프로필·기존 워크트리 기록을 한 번 옮긴다(-n 은 보기만)
   ccp_link.py migrate [-n] --map <기록폴더이름> <메인 체크아웃 경로>
@@ -262,7 +262,7 @@ def scan_session(path):
     if '"parentUuid"' not in head and '"parentUuid"' not in tail:
         return None
     info = {"path": path, "sid": os.path.basename(path)[:-len(".jsonl")], "mtime": os.path.getmtime(path),
-            "title": "", "branch": "", "continued_in": ""}
+            "size": os.path.getsize(path), "title": "", "branch": "", "continued_in": "", "holder": "", "holder_kind": "", "open": ""}
     for line in reversed(tail.splitlines()):          # 마지막 줄부터 — 제목·브랜치는 최신 것이 맞다
         if not info["title"] and '"aiTitle"' in line:            # 키 이름으로 건다 — 콜론 뒤 공백 유무에 흔들리지 않게
             info["title"] = _one_line(_field(line, "aiTitle"))
@@ -300,12 +300,20 @@ def _field(line, key):
 
 
 def sessions(base, profs, cwd, me="", limit=10):
-    """이 폴더에서 나눈 대화, 최근순. holder = 지금 띄우려는 프로필(me) 말고 다른 프로필이 잡고 있으면 그 이름."""
+    """이 폴더에서 나눈 대화, 최근순.
+
+    holder = 지금 띄우려는 프로필(me) 말고 **다른** 프로필이 잡고 있으면 그 이름(정리 안내 대상).
+    open   = me 자신이 지금 열어 둔 세션이면 그 프로필 이름(알림만 — 복사본으로 가져와도 엉키지 않는다).
+    """
     me = real(me) if me else real(base)
-    held = {}
+    held, mine = {}, {}
     for label, cfg, o in live_sessions(base, profs):
-        if real(cfg) != me and o.get("sessionId"):
+        if not o.get("sessionId"):
+            continue
+        if real(cfg) != me:
             held[o["sessionId"]] = (label, o.get("kind") or "")
+        else:
+            mine[o["sessionId"]] = label
     files = []
     for folder in session_folders(base, cwd):
         for f in os.listdir(folder):
@@ -321,6 +329,7 @@ def sessions(base, profs, cwd, me="", limit=10):
         if not info:
             continue
         info["holder"], info["holder_kind"] = held.get(info["sid"], ("", ""))
+        info["open"] = mine.get(info["sid"], "")
         out.append(info)
         if limit and len(out) >= limit:
             break
@@ -346,7 +355,8 @@ def session_row(info):
     import time
     when = time.strftime("%m-%d %H:%M", time.localtime(info["mtime"]))
     return "\t".join([info["path"], info["sid"], when, info["branch"], info["title"],
-                      info["holder"], info["holder_kind"], info["continued_in"]])
+                      info["holder"], info["holder_kind"], info["continued_in"],
+                      str(info.get("size", "")), info.get("open", ""), str(int(info["mtime"]))])
 
 
 # ── 워크트리 기록 이관 ───────────────────────────────────────────────────
@@ -461,9 +471,14 @@ def main(argv):
             info = scan_session(path)
             if not info:
                 return 1
-            held = {o.get("sessionId"): (label, o.get("kind") or "") for label, cfg, o in live_sessions(base, profs)
-                    if real(cfg) != (real(me) if me else real(base))}
-            info["holder"], info["holder_kind"] = held.get(info["sid"], ("", ""))
+            me_r = real(me) if me else real(base)
+            for label, cfg, o in live_sessions(base, profs):
+                if o.get("sessionId") != info["sid"]:
+                    continue
+                if real(cfg) != me_r:
+                    info["holder"], info["holder_kind"] = label, o.get("kind") or ""
+                else:
+                    info["open"] = label
             print(session_row(info))
             return 0
         for info in sessions(base, profs, cwd, me=me, limit=n):

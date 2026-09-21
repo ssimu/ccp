@@ -61,7 +61,7 @@ Do not add the `~/.claude` account you already use. It is always item 0.
 | `ccp-edit name new-name new-alias` | Rename / change alias. The folder moves too, so the login is kept |
 | `ccp-rm name` | Remove an account. Only its login goes away; history stays |
 
-The list works like the account menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, Enter selects, `q` or Esc cancels. It clears the screen first, so the quota table of the account menu does not linger.
+The list works like the account menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, Enter selects, `q` or Esc cancels. It clears the screen first, so the quota table of the account menu does not linger. Conversations are grouped into today, this week and earlier, with branch, transcript size, and marks for held by another account, open in this account, or continued in another session.
 It also includes conversations from other worktrees of the same repository (Orca etc.), and marks conversations held by another account or continued in another session.
 Bringing over is a copy (Claude Code's `--fork-session`): the original is untouched, nothing tangles even if it is still open on the other account, and everything since the last compaction comes along.
 Turn the list off with `CCP_PICK_SESSION=0` in `~/.config/ccp/config.zsh`; `CCP_PICK_N=12` changes how many are shown.

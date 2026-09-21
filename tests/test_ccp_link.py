@@ -378,3 +378,28 @@ def test_sessions_id_는_하나면_0_없으면_1_여럿이면_2(homes, tmp_path,
     assert ccp_link.main(["sessions", "--id", "zzzz", str(cwd)]) == 1
     assert ccp_link.main(["sessions", "--id", "aaaa", str(cwd)]) == 2
     assert capsys.readouterr().err.strip() == "aaaa1111 aaaa2222"
+
+
+def test_목록에_크기와_수정시각_epoch_가_있다(homes, tmp_path):
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    p = transcript(folder, SID1, title="원본", mtime=1700000000)
+    got = ccp_link.sessions(base, profs, str(cwd))[0]
+    assert got["size"] == os.path.getsize(p) and got["mtime"] == 1700000000
+    cols = ccp_link.session_row(got).split("\t")
+    assert cols[8] == str(os.path.getsize(p)) and cols[10] == "1700000000"
+
+
+def test_내_프로필이_열어_둔_세션은_open_으로_따로_표시(homes, tmp_path):
+    """다른 프로필이 잡은 것(holder, 정리 안내 대상)과 내 계정에서 지금 열려 있는 것(open, 알림만)은 다르다."""
+    base, profs = homes
+    cwd = tmp_path / "proj"; cwd.mkdir()
+    folder = base / "projects" / ccp_link.encode(str(cwd.resolve()))
+    transcript(folder, SID1, title="지금 보고 있는 대화")
+    (profs / "b" / "sessions").mkdir()
+    (profs / "b" / "sessions" / "1.json").write_text(json.dumps(
+        {"pid": os.getpid(), "sessionId": SID1, "cwd": str(cwd), "kind": "interactive", "name": "x"}))
+    got = ccp_link.sessions(base, profs, str(cwd), me=str(profs / "b"))[0]
+    assert got["holder"] == "" and got["open"] == "b"
+    assert ccp_link.session_row(got).split("\t")[9] == "b"
