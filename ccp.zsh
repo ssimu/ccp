@@ -457,24 +457,18 @@ _ccp_take() {
       [[ -z "$row" ]] && { _ccp_tl z_take_empty >&2; return 0; }
     fi
   elif (( ! sess )) && [[ "${CCP_PICK_SESSION:-1}" != 0 ]] && { [ -t 0 ] || [[ "${CCP_PICK_SESSION:-}" == always ]]; }; then
-    local -a rows; rows=("${(@f)$(python3 "$link" sessions --me "$dir" -n "${CCP_PICK_N:-8}" "$PWD" 2>/dev/null)}")
-    [[ -z "${rows[1]:-}" ]] && return 0
-    local -a f; local sid when branch title holder cont k=0 ans
-    _ccp_tl z_pick_head "$shown"
-    for row in "${rows[@]}"; do
-      f=("${(@ps:\t:)row}")   # read 는 빈 칸을 접어 열이 밀린다 — 탭으로 그대로 자른다
-      sid="${f[2]}" when="${f[3]}" branch="${f[4]}" title="${f[5]}" holder="${f[6]}" cont="${f[8]}"
-      (( k++ ))
-      printf '  %d) %s  %s  [%s]  %s' "$k" "${sid[1,8]}" "$when" "$branch" "$title"
-      [[ -n "$holder" ]] && { printf ' '; _ccp_t z_pick_held_mark "$( [[ "$holder" == default ]] && _ccp_t default || print -r -- "$holder" )"; }
-      [[ -n "$cont" ]] && { printf ' '; _ccp_t z_pick_cont_mark "${cont[1,8]}"; }
-      printf '\n'
-    done
-    _ccp_t z_pick_prompt; read -r ans || ans=""
-    [[ -z "$ans" ]] && return 0
-    [[ "$ans" == [qQ] ]] && return 3
-    [[ "$ans" == <-> ]] && (( ans >= 1 && ans <= ${#rows} )) || { _ccp_tl z_out_of_range "$ans" >&2; return 1; }
-    row="${rows[ans]}"
+    # 그리기와 키 처리는 ccp_pick.py(계정 메뉴와 같은 조작, 화면을 지우고 그린다). 터미널이 아니면 번호를 한 줄 읽는다.
+    local tmp; tmp=$(mktemp -d)
+    python3 "$link" sessions --me "$dir" -n "${CCP_PICK_N:-8}" "$PWD" > "$tmp/rows.tsv" 2>/dev/null
+    [[ -s "$tmp/rows.tsv" ]] || { rm -rf "$tmp"; return 0; }
+    python3 "$_CCP_HOME/ccp_pick.py" "$tmp" "$shown"
+    local sel; sel=$(awk -F'\t' '$1=="sel"{print $2}' "$tmp/_meta" 2>/dev/null)
+    case "$sel" in
+      0|'') rm -rf "$tmp"; return 0 ;;      # 새 대화
+      -1)   rm -rf "$tmp"; return 3 ;;      # 취소
+      -2)   rm -rf "$tmp"; return 1 ;;      # 잘못된 입력(안내는 ccp_pick 이 했다)
+    esac
+    row="$(sed -n "${sel}p" "$tmp/rows.tsv")"; rm -rf "$tmp"
   else
     return 0
   fi

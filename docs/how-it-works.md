@@ -84,7 +84,7 @@ ccp                 메뉴. ↑↓/j k 이동 · 숫자 = 그 번호 · Enter �
 ccp 2               번호로 바로
 ccp team            이름으로 (Tab 완성). 양쪽 도구에 같은 이름이 있으면 claude:team / codex:team
                     계정을 고르면 이 폴더(와 같은 저장소의 워크트리)에서 나눈 대화 목록이 뜬다:
-                    번호 = 그 대화를 복사본으로 가져와 이어가기 · Enter = 새 대화 · q 취소
+                    ↑↓/j k · 숫자 · Enter = 고른 대화를 복사본으로 가져와 이어가기(0 = 새 대화) · Esc/q 취소 (ccp_pick.py)
 ccp team --take [ID] 묻지 않고 가져오기(ID 없으면 가장 최근). ID 는 앞자리면 된다
 ccp team -c         뒤의 인자는 그대로 claude 에 전달 (-c/-r 을 주면 목록은 건너뛴다)
 cct                 profiles.tsv 의 별칭 = ccp claude:team
@@ -117,7 +117,8 @@ Codex 는 `codex app-server` 의 JSON-RPC 로 읽는다(1초, 토큰 0).
 - ⚠ **`projects` 는 반드시 공유할 것.** 한도가 차서 계정을 바꾸는 순간 대화를 이어가는 게 전환의 핵심이다.
 - 이어가기는 **복사본**으로 한다(`--resume <기록 파일> --fork-session`). 같은 세션 ID 를 두 계정이 그냥 열면 한 기록에 둘이 쓰고,
   백그라운드로 넘어간 세션은 첫 프롬프트 전까지 제목만 있는 껍데기라 `-r` 로 열면 이전 대화가 통째로 빠진다(2026-09-21 겪음).
-  목록은 `ccp_link.py sessions` 가 기록 파일의 앞뒤 일부만 읽어 만든다(수십 MB 기록 100여 개도 0.2초).
+  목록은 `ccp_link.py sessions` 가 기록 파일의 앞뒤 일부만 읽어 만들고(수십 MB 기록 100여 개도 0.2초), `ccp_pick.py` 가
+  계정 메뉴와 같은 조작으로 고르게 한다(화면을 지우고 그린다. 터미널이 아니면 번호를 한 줄 읽는다).
   껍데기(대화 행 없음)는 빼고, 다른 프로필이 잡은 것(`sessions/*.json`)과 다른 세션으로 이어진 것(`continued-in`)은 표시만 한다.
 - ⚠ 프로필 세션 안에서는 `CLAUDE_CONFIG_DIR` 이 환경에 남아 자식 프로세스가 물려받는다. ccp 는 "기본"을 고르면
   서브셸에서 `unset` 하고 띄운다.
@@ -147,6 +148,8 @@ ccp.zsh                본체 — 메뉴·전환·ccp-new·ccp-sync·별칭·Tab
 ccp_link.py            기록 연동 — 워크트리→메인 체크아웃 폴더 이름(CLAUDE_CODE_PROJECT_DIR_NAME), 이관, 다른 프로필이 잡은 세션 찾기
 ccp_i18n.py            표시 문구 사전(ko/en/ja/zh). ccp_i18n.zsh 는 여기서 생성 — 손으로 고치지 않는다
 ccp_render.py          메뉴 렌더러 — 카드/표, 추천 계산, 대화형 키 입력
+ccp_pick.py            '이 폴더에서 나눈 대화' 선택 화면 — 계정을 고른 뒤 뜬다. 고른 것은 복사본으로 가져온다
+ccp_keys.py            터미널 키 읽기(두 화면 공용) — 화살표 시퀀스 뒤에 Enter 가 붙어 와도 키를 잃지 않는다
 ccp_codex.py           codex 사용량 (app-server JSON-RPC → TSV)
 statusline.sh          Claude Code 상태줄 진입점 → ccp_statusline.py (statusline.conf 로 조각·막대·색·형식을 정한다)
 ccp_codex_statusline.py  Codex 상태줄 — ~/.codex/config.toml 의 [tui].status_line 에 모델·한도 항목을 넣는다(있으면 그대로)

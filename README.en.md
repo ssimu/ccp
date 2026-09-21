@@ -52,7 +52,7 @@ Do not add the `~/.claude` account you already use. It is always item 0.
 | Type this | And this happens |
 |---|---|
 | `ccp` | The menu. Arrow keys to choose, Enter to open. **Just Enter opens the recommended account** |
-| `ccp team` or `cct` | Straight into that account. A list of **conversations from this folder** comes first — a number brings that one over and continues it, Enter starts fresh |
+| `ccp team` or `cct` | Straight into that account. A list of **conversations from this folder** comes first — `↓` to one and Enter brings it over and continues it; item 0 (the default) starts fresh |
 | `ccp team --take` | No questions: **bring over the latest conversation** and continue. This is the one you use when a quota runs out. `--take f7745fb0` picks one by ID prefix |
 | `ccp team -c` / `-r <id>` | Claude Code's own continue/resume flags, passed through (no list). Two accounts then write the same transcript, so the bring-over above is usually better |
 | `ccp-usage` | Remaining quota only, no menu |
@@ -61,7 +61,8 @@ Do not add the `~/.claude` account you already use. It is always item 0.
 | `ccp-edit name new-name new-alias` | Rename / change alias. The folder moves too, so the login is kept |
 | `ccp-rm name` | Remove an account. Only its login goes away; history stays |
 
-The list also includes conversations from other worktrees of the same repository (Orca etc.), and marks conversations held by another account or continued in another session.
+The list works like the account menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, Enter selects, `q` or Esc cancels. It clears the screen first, so the quota table of the account menu does not linger.
+It also includes conversations from other worktrees of the same repository (Orca etc.), and marks conversations held by another account or continued in another session.
 Bringing over is a copy (Claude Code's `--fork-session`): the original is untouched, nothing tangles even if it is still open on the other account, and everything since the last compaction comes along.
 Turn the list off with `CCP_PICK_SESSION=0` in `~/.config/ccp/config.zsh`; `CCP_PICK_N=12` changes how many are shown.
 

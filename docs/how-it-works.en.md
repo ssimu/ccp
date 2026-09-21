@@ -16,7 +16,7 @@ A profile is `~/.claude-profiles/<name>/`. Inside it, only `.claude.json` (auth 
 - ⚠ **Always share `projects`.** The whole point of switching when a quota runs out is continuing the conversation.
 - Continuing is done as a **copy** (`--resume <transcript file> --fork-session`). Opening the same session ID from two accounts makes both write one transcript,
   and a session that was sent to the background is an empty shell (title only) until its first prompt — resuming it with `-r` drops the whole history (seen 2026-09-21).
-  After you pick an account, ccp lists this folder's conversations (plus other worktrees of the same repo); `ccp_link.py sessions` builds it from the head and tail of each transcript
+  After you pick an account, ccp lists this folder's conversations (plus other worktrees of the same repo) in a picker that works like the account menu (`ccp_pick.py`, clears the screen first; without a terminal it reads a number from stdin); `ccp_link.py sessions` builds the list from the head and tail of each transcript
   (a hundred multi-MB transcripts in ~0.2 s), skips shells, and only marks sessions held by another profile (`sessions/*.json`) or continued elsewhere (`continued-in`).
   `ccp <profile> --take [ID]` does the same without asking.
 - ⚠ Inside a profile session `CLAUDE_CONFIG_DIR` stays in the environment and child processes inherit it. When you pick "default", ccp `unset`s it in a subshell first.
@@ -45,6 +45,8 @@ ccp.zsh                main — menu, switching, ccp-new, ccp-sync, aliases, Tab
 ccp_link.py            history linking — worktree → main-checkout folder name (CLAUDE_CODE_PROJECT_DIR_NAME), migration, sessions held by another profile
 ccp_i18n.py            UI strings in ko/en/ja/zh; ccp_i18n.zsh is generated from it — never edit by hand
 ccp_render.py          menu renderer — cards/table, recommendation, interactive keys
+ccp_pick.py            picker for "conversations from this folder", shown after you choose an account; the pick is brought over as a copy
+ccp_keys.py            terminal key reader shared by both screens — an arrow sequence followed by Enter in one read loses nothing
 ccp_codex.py           codex quota (app-server JSON-RPC → TSV)
 statusline.sh          status line entry → ccp_statusline.py (statusline.conf picks pieces, bar, colors, format)
 ccp_codex_statusline.py  Codex footer — writes [tui].status_line (model, limits) into ~/.codex/config.toml unless already set

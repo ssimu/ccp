@@ -477,7 +477,8 @@ if not interactive():
     write_meta(None)
     sys.exit(0)
 
-import termios,tty as ttymod,select
+import termios,tty as ttymod
+from ccp_keys import KeyReader   # 한 번에 여러 키가 들어와도(연타·키 반복) 잃지 않는다
 hl=rows.index(rec) if rec is not None else 0
 NOTICE=None   # 무시된 키에 대한 한 줄 안내. 다음 키를 누르면 사라진다.
 if all(r['name']==t('default') for r in rows): NOTICE=t('key_empty')   # 첫 설치: 기본만 있을 때
@@ -502,26 +503,21 @@ DEFAULT_NAME=t('default')
 try:
     ttymod.setcbreak(fd)            # setraw 는 OPOST 까지 꺼서 출력 줄바꿈이 깨진다
     sys.stdout.write('\033[?25l'); n=draw(hl,True)
+    keys=KeyReader(fd)
     while True:
-        ch=os.read(fd,1)
+        ch=keys.next()
         NOTICE=None
-        if ch==b'\x1b':
-            r,_,_=select.select([fd],[],[],0.05)
-            if not r: break                         # 단독 Esc = 취소
-            seq=os.read(fd,8)
-            if seq in (b'[A',b'OA'): hl=(hl-1)%len(rows)
-            elif seq in (b'[B',b'OB'): hl=(hl+1)%len(rows)
-            else: continue
-        elif ch in (b'\r',b'\n'): sel=rows[hl]['i']; break
-        elif ch in (b'q',b'Q',b'\x03',b'\x04'): break
-        elif ch in (b'k',b'K'): hl=(hl-1)%len(rows)
-        elif ch in (b'j',b'J'): hl=(hl+1)%len(rows)
-        elif ch in (b'a',b'A'): act=('add',); break
-        elif ch in (b'e',b'E',b'd',b'D'):
+        if ch in ('esc','q','Q','\x03','\x04','eof'): break   # 단독 Esc/q = 취소
+        elif ch=='up' or ch in ('k','K'): hl=(hl-1)%len(rows)
+        elif ch=='down' or ch in ('j','J'): hl=(hl+1)%len(rows)
+        elif ch=='other': continue
+        elif ch=='enter': sel=rows[hl]['i']; break
+        elif ch in ('a','A'): act=('add',); break
+        elif ch in ('e','E','d','D'):
             if rows[hl]['name']==DEFAULT_NAME:                 # 기본 프로필은 이름을 바꾸거나 지울 수 없다 — 이유를 보여 준다
                 NOTICE=t('key_locked'); n=draw(hl,False); continue
-            act=('edit' if ch in (b'e',b'E') else 'del', rows[hl]['tool'], rows[hl]['name']); break
-        elif ch in (b'v',b'V'):
+            act=('edit' if ch in ('e','E') else 'del', rows[hl]['tool'], rows[hl]['name']); break
+        elif ch in ('v','V'):
             VIEW='table' if VIEW=='graph' else 'graph'
             try:
                 os.makedirs(os.path.dirname(VIEWF),exist_ok=True); open(VIEWF,'w').write(VIEW)
@@ -529,7 +525,7 @@ try:
             # 줄 수가 달라지므로 이전 블록을 지우고 다시 그린다
             sys.stdout.write(f'\033[{n}A'+'\r\033[J'); sys.stdout.flush()
             n=draw(hl,True); continue
-        elif ch.isdigit():
+        elif len(ch)==1 and ch.isdigit():
             k=next((k for k,r in enumerate(rows) if r['i']==int(ch)),None)
             if k is None: continue
             hl=k
