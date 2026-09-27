@@ -134,10 +134,16 @@ def fetch(profile_dir, timeout=40):
         env["CLAUDE_CONFIG_DIR"] = profile_dir
     else:
         env.pop("CLAUDE_CONFIG_DIR", None)
+    # /usage 는 사용량 API 한 번이면 되는데, 그냥 부르면 MCP 서버·플러그인 동기화·부가 트래픽까지 전부 띄운다
+    # (실측 4.6s, CPU 3.5s — 프로필 4개 병렬이면 CPU 18s). MCP 를 비우고 부가 트래픽을 끄면 ~1.5s, 출력 동일.
+    # --bare 는 더 빠르지만 OAuth 를 안 읽어 구독 사용량이 안 나온다 — 쓰지 말 것.
+    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     try:
         # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력을 먹는다.
         # cwd 는 전용 프로브 폴더 — 세션 기록이 작업 중인 프로젝트에도, 홈에도 섞이지 않게(probe_dir 참조).
-        r = subprocess.run(["claude", "-p", "/usage", "--max-turns", "1"], stdin=subprocess.DEVNULL, capture_output=True,
+        r = subprocess.run(["claude", "-p", "/usage", "--max-turns", "1",
+                            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                            "--no-session-persistence", "--no-chrome"], stdin=subprocess.DEVNULL, capture_output=True,
                            text=True, timeout=timeout, env=env, cwd=probe_dir())
         return r.stdout
     except Exception:
