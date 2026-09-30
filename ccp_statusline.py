@@ -203,7 +203,8 @@ def _refresh_in_background():
             return                                   # 이미 도는 중(2분 안)
         fd = os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_TRUNC); os.close(fd)
         # 끝나면 락을 지우도록 셸로 감싼다. 상태줄 프로세스와 분리(start_new_session).
-        cmd = f'python3 "{os.path.join(HERE, "ccp_usage.py")}" refresh "{_profile_dir()}"; rm -f "{lock}"'
+        # 실패(종료코드 1)면 락을 남긴다 — 캐시가 낡은 채라, 락이 없으면 렌더마다 claude 를 다시 띄운다(2분 뒤 재시도).
+        cmd = f'python3 "{os.path.join(HERE, "ccp_usage.py")}" refresh "{_profile_dir()}" && rm -f "{lock}"'
         subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True, env=dict(os.environ, CCP_CONFIG_DIR=CFG_DIR))
     except Exception:

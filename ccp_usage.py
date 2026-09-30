@@ -13,6 +13,8 @@ TSV 12칸 (ccp_render.py · ccp_codex.py 와 같다):
 명령:
   ccp_usage.py probe [프로필디렉터리]        조회 → stdout 한 줄 + 캐시 갱신 (ccp 메뉴가 부른다)
   ccp_usage.py refresh [프로필디렉터리]      조회 → 캐시만 갱신, 출력 없음 (상태줄이 백그라운드로 부른다)
+  ccp_usage.py cached <초> [프로필디렉터리]  캐시가 <초> 안쪽이면 stdout 한 줄(남은 분 보정), 아니면 종료코드 1
+                                            (ccp 메뉴가 probe 전에 부른다. 60초 넘은 캐시면 백그라운드 갱신도 건다)
   ccp_usage.py cache-path [프로필디렉터리]   그 프로필의 캐시 파일 경로
 프로필 디렉터리를 비우면 기본 프로필(~/.claude.json).
 """
@@ -24,6 +26,7 @@ import subprocess
 import sys
 
 FIELDS = 12
+FAIL_TTL = 300
 MONTHS = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1)}
 
 
@@ -135,9 +138,13 @@ def fetch(profile_dir, timeout=40):
     else:
         env.pop("CLAUDE_CONFIG_DIR", None)
     # /usage 는 사용량 API 한 번이면 되는데, 그냥 부르면 MCP 서버·플러그인 동기화·부가 트래픽까지 전부 띄운다
-    # (실측 4.6s, CPU 3.5s — 프로필 4개 병렬이면 CPU 18s). MCP 를 비우고 부가 트래픽을 끄면 ~1.5s, 출력 동일.
+    # (실측 4.6s, CPU 3.5s — 프로필 4개 병렬이면 CPU 18s). 그래서 MCP 는 비운다.
     # --bare 는 더 빠르지만 OAuth 를 안 읽어 구독 사용량이 안 나온다 — 쓰지 말 것.
-    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 도 쓰지 말 것 — 켜면 /api/oauth/usage 응답을 못 받는다
+    # (claude 2.1.283~285 실측: 요청은 나가는데 200 이 안 온다). 그때 claude 는 마지막으로 저장해 둔 값을
+    # 조용히 대신 보여서 "출력 동일"로 보이지만 낡은 %이고, 저장된 값이 없는 프로필은 한도 줄이 아예 없다.
+    # 바깥 셸에서 물려받은 값도 지운다.
+    env.pop("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", None)
     try:
         # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력을 먹는다.
         # cwd 는 전용 프로브 폴더 — 세션 기록이 작업 중인 프로젝트에도, 홈에도 섞이지 않게(probe_dir 참조).
@@ -176,18 +183,79 @@ def read_cache(profile_dir):
     return (line.split("\t") + [""] * FIELDS)[:FIELDS], age
 
 
+def cached_line(profile_dir, ttl):
+    """ttl(초) 안쪽의 정상 캐시를 지금 기준으로 고친 TSV 한 줄. 쓸 수 없으면 None.
+    메뉴가 계정마다 claude 를 띄우지 않게(프로필당 수 초) 먼저 이것을 본다."""
+    row, age = read_cache(profile_dir)
+    if row is None or age > ttl:
+        return None
+    # 실패도 잠깐(5분)은 캐시로 보인다 — 안 그러면 늘 실패하는 계정 하나가 메뉴를 열 때마다 수십 초를 붙잡는다.
+    if row[6] == "fail":
+        return "\t".join(row) if age <= min(ttl, FAIL_TTL) else None
+    if row[6] != "ok":
+        return None
+    # 1·3칸은 조회 시점 기준 '남은 분'이다. 지난 만큼 뺀다 — 그새 리셋이 지났으면 %가 틀리니 캐시를 버린다.
+    gone = int(age // 60)
+    for k in (1, 3):
+        if row[k].isdigit():
+            left = int(row[k]) - gone
+            if left <= 0:
+                return None
+            row[k] = str(left)
+    return "\t".join(row)
+
+
+def settle(profile_dir, line):
+    """조회 결과를 캐시에 반영하고 화면에 보일 줄을 돌려준다. probe·refresh 가 같이 쓴다.
+    조회 실패(fail)는 성한 캐시를 덮지 않는다 — 사용량 API 는 붐빌 때 한도 줄 없이 끝나기도 하고, 기계가 바쁘면
+    claude 가 시간 초과로 끝난다. 리셋 전의 예전 값이 있으면 fail 대신 그것을 보이고 캐시는 낡은 채로 둔다(다시 시도된다)."""
+    if line.split("\t")[6] != "fail":
+        write_cache(profile_dir, line)
+        return line
+    prev = cached_line(profile_dir, 7 * 86400)
+    if prev is None or prev.split("\t")[6] == "fail":
+        write_cache(profile_dir, line)      # 쓸 만한 예전 값이 없을 때만 — 상태줄은 ok 줄만 쓰니 영향 없다
+        return line
+    return prev
+
+
+def refresh_in_background(profile_dir):
+    """캐시만 떼어 놓고 갱신한다. 상태줄(ccp_statusline.py)과 같은 락을 써서 한 번만 돈다."""
+    lock = os.path.join(config_dir(), "cache", f"refresh-{profile_name(profile_dir)}.lock")
+    try:
+        if os.path.exists(lock) and __import__("time").time() - os.path.getmtime(lock) < 120:
+            return
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        os.close(os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_TRUNC))
+        # 실패하면 락을 남긴다 — 캐시가 낡은 채라, 락이 없으면 부를 때마다 claude 를 다시 띄운다(2분 뒤 재시도).
+        cmd = f'python3 "{os.path.abspath(__file__)}" refresh "{profile_dir}" && rm -f "{lock}"'
+        subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True,
+                         env=dict(os.environ, CCP_CONFIG_DIR=config_dir()))
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "probe"
     pdir = sys.argv[2] if len(sys.argv) > 2 else ""
     if cmd == "cache-path":
         print(cache_path(pdir))
+    elif cmd == "cached":
+        ttl = float(sys.argv[2]) if len(sys.argv) > 2 else 600
+        pdir = sys.argv[3] if len(sys.argv) > 3 else ""
+        line = cached_line(pdir, ttl)
+        if line is None:
+            sys.exit(1)
+        if read_cache(pdir)[1] > 60 and not os.environ.get("CCP_USAGE_NO_BG"):
+            refresh_in_background(pdir)
+        print(line)
     elif cmd == "refresh":
-        write_cache(pdir, probe(pdir))
+        # 실패면 종료코드 1 — 부른 쪽(상태줄·메뉴)이 락을 남겨 2분은 다시 안 띄운다.
+        line = probe(pdir)
+        settle(pdir, line)
+        sys.exit(1 if line.split("\t")[6] == "fail" else 0)
     elif cmd == "parse":                 # stdin 의 /usage 원문을 TSV 로 (디버깅용)
         print(parse(sys.stdin.read()))
     else:
-        line = probe(pdir)
-        # 조회 실패(fail)는 캐시에 덮어쓰지 않는다 — 잠깐의 네트워크 문제로 상태줄의 값이 사라지면 안 된다.
-        if line.split("\t")[6] != "fail":
-            write_cache(pdir, line)
-        print(line)
+        print(settle(pdir, probe(pdir)))

@@ -86,7 +86,11 @@ print(f\"{a['emailAddress']}  {(a.get('organizationName') or '')[:26]}\")
 
 # 사용량 한 줄. 조회·파싱·캐시는 ccp_usage.py 가 한다(상태줄이 같은 캐시를 읽어 모델 전용 한도를 보인다).
 # /usage 는 print 모드에서도 동작하고 모델 호출이 아니다(토큰 0). 인자가 비면 기본 프로필.
+# 캐시가 CCP_USAGE_TTL 초(기본 600) 안쪽이면 그것을 바로 쓴다 — probe 는 claude 를 띄워 프로필당 수 초 걸린다.
+# 60초 넘은 캐시는 뒤에서 갱신해 둔다. 늘 새로 받으려면 CCP_USAGE_TTL=0.
 _ccp_usage_one() {
+  local ttl="${CCP_USAGE_TTL:-600}"
+  (( ttl > 0 )) && python3 "$_CCP_HOME/ccp_usage.py" cached "$ttl" "${1:-}" 2>/dev/null && return 0
   python3 "$_CCP_HOME/ccp_usage.py" probe "${1:-}" 2>/dev/null \
     || printf '\t\t\t\t\t\tfail\t\t\t\t\t\n'
 }
