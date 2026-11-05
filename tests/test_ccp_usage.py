@@ -237,3 +237,30 @@ def test_잠겨_있으면_refresh_도_조용히_건너뛴다(monkeypatch, tmp_pa
     monkeypatch.setattr(ccp_usage, "probe", lambda d, tries=1: (_ for _ in ()).throw(AssertionError("probe 가 돌면 안 된다")))
     monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path))
     ccp_usage.refresh("")
+
+
+def test_세션_창이_없으면_percent_가_null_인데_0_으로_본다(monkeypatch, tmp_path):
+    # 최근 5시간 동안 안 쓴 프로필은 limits 의 session percent 가 null 로 온다. 비워 두면 메뉴에 '-' 로 떠서
+    # 조회가 안 된 것처럼 보인다. 창이 아직 안 열린 것이니 0% 로 보인다(렌더러가 '새 창' 으로 적는다).
+    import time, json as _j
+    p = tmp_path / ".claude.json"
+    p.write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
+                           "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int(time.time() * 1000),
+                                                      "utilization": {"limits": [
+                                                          {"kind": "session", "percent": None, "resets_at": None},
+                                                          {"kind": "weekly_all", "percent": 12, "resets_at": "2030-01-01T00:00:00Z"},
+                                                          {"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}]}}}))
+    row, age = ccp_usage.native_cache(str(tmp_path))
+    assert row[0] == "12" and row[2] == "0" and row[3] == "" and row[4] == "Fable" and row[5] == "0" and row[6] == "ok"
+
+
+def test_세션_슬롯이_아예_없어도_주간이_있으면_세션은_0(monkeypatch, tmp_path):
+    import time, json as _j
+    p = tmp_path / ".claude.json"
+    p.write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
+                           "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int(time.time() * 1000),
+                                                      "utilization": {"limits": [
+                                                          {"kind": "weekly_all", "percent": 2, "resets_at": "2030-01-01T00:00:00Z"},
+                                                          {"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}]}}}))
+    row, age = ccp_usage.native_cache(str(tmp_path))
+    assert row[0] == "2" and row[2] == "0" and row[3] == "" and row[6] == "ok"

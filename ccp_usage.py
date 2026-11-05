@@ -223,6 +223,8 @@ def native_cache(profile_dir):
         row[6], row[9], row[10] = "ok", "10080", "300"
         for slot in limits:
             kind, pct = slot.get("kind"), slot.get("percent")
+            if pct is None and kind in ("session", "weekly_all"):
+                pct = 0   # 창이 아직 안 열림(최근 5시간/7일 사용 없음) — 비워 두면 '-' 로 떠서 조회 실패처럼 보인다
             if not isinstance(pct, (int, float)) or isinstance(pct, bool) or not math.isfinite(pct) or not 0 <= pct <= 100:
                 continue
             if kind in ("session", "weekly_all"):
@@ -241,6 +243,8 @@ def native_cache(profile_dir):
                     row[4], row[5] = model.replace("\t", " ").replace("\n", " "), str(int(round(pct)))
         if not row[0] and not row[2]:
             return None, None
+        if row[0] and not row[2]:
+            row[2] = "0"   # 5시간 창이 아직 안 열렸으면 limits 에 session 슬롯 자체가 없다 — 0% (렌더러는 '새 창')
         if age > 300:
             row[6] = "stale"
         row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
