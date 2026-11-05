@@ -8,13 +8,12 @@
 
 TSV 12칸 (ccp_render.py · ccp_codex.py 와 같다):
   0 주간%  1 주간리셋(분)  2 세션%  3 세션리셋(분)  4 모델명  5 모델%
-  6 상태(ok/nologin/fail)  7 주간리셋시각  8 세션리셋시각  9 주간창(분)  10 세션창(분)  11 메모
+  6 상태(ok/stale/nologin/fail)  7 주간리셋시각  8 세션리셋시각  9 주간창(분)  10 세션창(분)  11 메모
 
 명령:
-  ccp_usage.py probe [프로필디렉터리]        조회 → stdout 한 줄 + 캐시 갱신 (ccp 메뉴가 부른다)
+  ccp_usage.py menu [프로필디렉터리]         계정이 일치하는 스냅숏 즉시 표시 + 필요시 백그라운드 갱신
+  ccp_usage.py probe [프로필디렉터리]        직접 조회 → stdout 한 줄 + 캐시 갱신 (진단용)
   ccp_usage.py refresh [프로필디렉터리]      조회 → 캐시만 갱신, 출력 없음 (상태줄이 백그라운드로 부른다)
-  ccp_usage.py cached <초> [프로필디렉터리]  캐시가 <초> 안쪽이면 stdout 한 줄(남은 분 보정), 아니면 종료코드 1
-                                            (ccp 메뉴가 probe 전에 부른다. 60초 넘은 캐시면 백그라운드 갱신도 건다)
   ccp_usage.py cache-path [프로필디렉터리]   그 프로필의 캐시 파일 경로
 프로필 디렉터리를 비우면 기본 프로필(~/.claude.json).
 """
@@ -24,9 +23,12 @@ import os
 import re
 import subprocess
 import sys
+import time
+import math
+import fcntl
+import tempfile
 
 FIELDS = 12
-FAIL_TTL = 300
 MONTHS = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1)}
 
 
@@ -61,6 +63,27 @@ def probe_dir():
 def auth_file(profile_dir):
     # 기본 프로필의 설정은 ~/.claude.json(홈 바로 아래)이다. CLAUDE_CONFIG_DIR=~/.claude 로 부르면 못 찾는다.
     return os.path.join(profile_dir, ".claude.json") if profile_dir else os.path.expanduser("~/.claude.json")
+
+
+def keychain_locked():
+    """macOS 에서 로그인 키체인을 열 수 없는 맥락인지 — SSH 세션, 데스크톱 세션 밖에서 띄운 launchd 작업 등.
+
+    거기서 claude 를 띄우면 키체인 대신 <프로필>/.credentials.json 에 토큰을 돌린다. 그러면 파일과 키체인의
+    refresh 토큰이 어긋나고, 다음에 어느 한쪽이 갱신을 시도할 때 서버가 토큰 묶음을 통째로 무효화해
+    멀쩡하던 로그인까지 끊긴다(실제로 12시간마다 SSH 로 도는 점검이 이 길을 밟았다). 그래서 잠긴 맥락에서는
+    claude 를 띄우지 않는다. `security` 가 "User interaction is not allowed" 를 낼 때만 잠김으로 본다 —
+    키체인 파일이 없거나 다른 오류면 평소처럼 진행한다. 알고 하는 거면 CCP_SKIP_KEYCHAIN_CHECK=1.
+    """
+    if sys.platform != "darwin" or os.environ.get("CCP_SKIP_KEYCHAIN_CHECK") == "1":
+        return False
+    kc = os.path.join(os.environ.get("HOME") or os.path.expanduser("~"), "Library/Keychains/login.keychain-db")
+    if not os.path.exists(kc):
+        return False
+    try:
+        r = subprocess.run(["security", "show-keychain-info", kc], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return False
+    return r.returncode != 0 and "interaction is not allowed" in ((r.stderr or "") + (r.stdout or "")).lower()
 
 
 def logged_in(profile_dir):
@@ -129,45 +152,162 @@ def parse(text, now=None):
     return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
 
 
-def fetch(profile_dir, timeout=40):
+def fetch(profile_dir, timeout=8):
     """claude -p /usage 를 돌려 원문을 돌려준다. 실패하면 ''."""
     env = dict(os.environ)
+    for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+                "CLAUDE_CODE_USE_FOUNDRY", "CLAUDECODE"):
+        env.pop(key, None)
     # 프로필 세션 안에서 부르면 CLAUDE_CONFIG_DIR 이 환경에 남아 자식이 물려받는다. 기본 프로필은 반드시 지운다.
     if profile_dir:
         env["CLAUDE_CONFIG_DIR"] = profile_dir
     else:
         env.pop("CLAUDE_CONFIG_DIR", None)
-    # /usage 는 사용량 API 한 번이면 되는데, 그냥 부르면 MCP 서버·플러그인 동기화·부가 트래픽까지 전부 띄운다
-    # (실측 4.6s, CPU 3.5s — 프로필 4개 병렬이면 CPU 18s). 그래서 MCP 는 비운다.
+    # /usage 는 사용량 API 한 번이면 되는데, 그냥 부르면 MCP 서버·플러그인 동기화까지 전부 띄운다
+    # (실측 4.6s, CPU 3.5s — 프로필 4개 병렬이면 CPU 18s). MCP 를 비우면 ~3s.
     # --bare 는 더 빠르지만 OAuth 를 안 읽어 구독 사용량이 안 나온다 — 쓰지 말 것.
-    # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 도 쓰지 말 것 — 켜면 /api/oauth/usage 응답을 못 받는다
-    # (claude 2.1.283~285 실측: 요청은 나가는데 200 이 안 온다). 그때 claude 는 마지막으로 저장해 둔 값을
-    # 조용히 대신 보여서 "출력 동일"로 보이지만 낡은 %이고, 저장된 값이 없는 프로필은 한도 줄이 아예 없다.
-    # 바깥 셸에서 물려받은 값도 지운다.
+    # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 도 쓰지 말 것(~1.5s 로 줄지만): 켜면 사용량 API 응답을 못 받고
+    # 1시간 안에 남은 스냅숏(.claude.json 의 cachedUsageUtilization)이 있을 때만 한도 줄이 나온다 — 방금 쓴
+    # 프로필에서만 되는 것처럼 보인다. 부모 환경에 켜져 있어도 지운다.
     env.pop("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", None)
     try:
         # stdin 을 끊는다 — 안 끊으면 백그라운드 claude 가 터미널 입력을 먹는다.
         # cwd 는 전용 프로브 폴더 — 세션 기록이 작업 중인 프로젝트에도, 홈에도 섞이지 않게(probe_dir 참조).
         r = subprocess.run(["claude", "-p", "/usage", "--max-turns", "1",
                             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-                            "--no-session-persistence", "--no-chrome"], stdin=subprocess.DEVNULL, capture_output=True,
+                            "--no-session-persistence", "--no-chrome",
+                            "--setting-sources", "", "--settings", '{"disableAllHooks":true}'], stdin=subprocess.DEVNULL, capture_output=True,
                            text=True, timeout=timeout, env=env, cwd=probe_dir())
         return r.stdout
     except Exception:
         return ""
 
 
-def probe(profile_dir):
+def probe(profile_dir, tries=2):
     if not logged_in(profile_dir):
         return "\t".join([""] * 6 + ["nologin"] + [""] * 5)
-    return parse(fetch(profile_dir))
+    # 사용량 API 가 가끔 실패한다. 그때 claude 는 오류 없이 한도 줄(Current session/week)만 빼고 출력하므로
+    # parse 가 fail 을 낸다. 대개 곧바로 다시 부르면 된다 — 한 번 더 시도한다.
+    for _ in range(tries):
+        line = parse(fetch(profile_dir))
+        if line.split("\t")[6] != "fail":
+            break
+        # Recent CLI builds can refresh this file without printing /usage.
+        cached, age = native_cache(profile_dir)
+        if cached is not None and age <= 300:
+            return "\t".join(cached)
+    return line
+
+
+def native_cache(profile_dir):
+    """Account-bound Claude snapshot, not a live network validity check."""
+    try:
+        with open(auth_file(profile_dir)) as fh:
+            data = json.load(fh)
+        account = (data.get("oauthAccount") or {}).get("accountUuid")
+        cache = data.get("cachedUsageUtilization") or {}
+        if not account or cache.get("accountUuid") != account:
+            return None, None
+        age = time.time() - float(cache["fetchedAtMs"]) / 1000
+        if not math.isfinite(age) or age < -60:
+            return None, None
+        age = max(0, age)
+        usage = cache.get("utilization") or {}
+        limits = usage.get("limits")
+        if not isinstance(limits, list):
+            limits = [dict(kind=kind, percent=(usage.get(key) or {}).get("utilization"),
+                           resets_at=(usage.get(key) or {}).get("resets_at"))
+                      for key, kind in (("five_hour", "session"), ("seven_day", "weekly_all"))]
+        row = [""] * FIELDS
+        row[6], row[9], row[10] = "ok", "10080", "300"
+        for slot in limits:
+            kind, pct = slot.get("kind"), slot.get("percent")
+            if not isinstance(pct, (int, float)) or isinstance(pct, bool) or not math.isfinite(pct) or not 0 <= pct <= 100:
+                continue
+            if kind in ("session", "weekly_all"):
+                base = 2 if kind == "session" else 0
+                row[base] = str(int(round(pct)))
+                reset = slot.get("resets_at")
+                if reset:
+                    dt = datetime.datetime.fromisoformat(reset.replace("Z", "+00:00")).astimezone()
+                    row[base + 1] = str(max(0, round((dt.timestamp() - time.time()) / 60)))
+                    row[8 if base == 2 else 7] = dt.strftime("%m/%d %H:%M")
+                    if dt.timestamp() <= time.time():
+                        row[6] = "stale"
+            elif kind == "weekly_scoped":
+                model = ((slot.get("scope") or {}).get("model") or {}).get("display_name")
+                if model and (not row[5] or pct > int(row[5])):
+                    row[4], row[5] = model.replace("\t", " ").replace("\n", " "), str(int(round(pct)))
+        if not row[0] and not row[2]:
+            return None, None
+        if age > 300:
+            row[6] = "stale"
+        row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
+        return row, age
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return None, None
+
+
+def start_refresh(profile_dir):
+    try:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "refresh", profile_dir],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def menu(profile_dir):
+    """Never wait for Claude startup before displaying the account picker."""
+    if not logged_in(profile_dir):
+        return "\t".join([""] * 6 + ["nologin"] + [""] * 5)
+    if keychain_locked():
+        return "\t".join([""] * 6 + ["fail"] + [""] * 4 + ["keychain-locked"])
+    row, age = native_cache(profile_dir)
+    if row is None or age > 60 or row[6] == "stale":
+        start_refresh(profile_dir)
+    if row is not None:
+        return "\t".join(row)
+    return "\t".join([""] * 6 + ["fail"] + [""] * 4 + ["refreshing"])
+
+
+def refresh(profile_dir):
+    """One bounded refresh per profile; repeated menu opens do not pile up CLIs."""
+    if keychain_locked():
+        return
+    path = cache_path(profile_dir) + ".lock"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        lock.seek(0)
+        try:
+            last = float(lock.read())
+        except ValueError:
+            last = 0
+        if time.time() - last < 60:
+            return
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(time.time()))
+        lock.flush()
+        save(profile_dir, probe(profile_dir, tries=1))
+
+
+def save(profile_dir, line):
+    # 조회 실패(fail)는 캐시에 덮어쓰지 않는다 — 잠깐의 네트워크 문제로 상태줄의 값이 사라지면 안 된다.
+    if line.split("\t")[6] != "fail":
+        write_cache(profile_dir, line)
 
 
 def write_cache(profile_dir, line):
     p = cache_path(profile_dir)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    fd, tmp = tempfile.mkstemp(prefix=".usage-", dir=os.path.dirname(p))
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(line + "\n")
     os.replace(tmp, p)
 
@@ -183,79 +323,18 @@ def read_cache(profile_dir):
     return (line.split("\t") + [""] * FIELDS)[:FIELDS], age
 
 
-def cached_line(profile_dir, ttl):
-    """ttl(초) 안쪽의 정상 캐시를 지금 기준으로 고친 TSV 한 줄. 쓸 수 없으면 None.
-    메뉴가 계정마다 claude 를 띄우지 않게(프로필당 수 초) 먼저 이것을 본다."""
-    row, age = read_cache(profile_dir)
-    if row is None or age > ttl:
-        return None
-    # 실패도 잠깐(5분)은 캐시로 보인다 — 안 그러면 늘 실패하는 계정 하나가 메뉴를 열 때마다 수십 초를 붙잡는다.
-    if row[6] == "fail":
-        return "\t".join(row) if age <= min(ttl, FAIL_TTL) else None
-    if row[6] != "ok":
-        return None
-    # 1·3칸은 조회 시점 기준 '남은 분'이다. 지난 만큼 뺀다 — 그새 리셋이 지났으면 %가 틀리니 캐시를 버린다.
-    gone = int(age // 60)
-    for k in (1, 3):
-        if row[k].isdigit():
-            left = int(row[k]) - gone
-            if left <= 0:
-                return None
-            row[k] = str(left)
-    return "\t".join(row)
-
-
-def settle(profile_dir, line):
-    """조회 결과를 캐시에 반영하고 화면에 보일 줄을 돌려준다. probe·refresh 가 같이 쓴다.
-    조회 실패(fail)는 성한 캐시를 덮지 않는다 — 사용량 API 는 붐빌 때 한도 줄 없이 끝나기도 하고, 기계가 바쁘면
-    claude 가 시간 초과로 끝난다. 리셋 전의 예전 값이 있으면 fail 대신 그것을 보이고 캐시는 낡은 채로 둔다(다시 시도된다)."""
-    if line.split("\t")[6] != "fail":
-        write_cache(profile_dir, line)
-        return line
-    prev = cached_line(profile_dir, 7 * 86400)
-    if prev is None or prev.split("\t")[6] == "fail":
-        write_cache(profile_dir, line)      # 쓸 만한 예전 값이 없을 때만 — 상태줄은 ok 줄만 쓰니 영향 없다
-        return line
-    return prev
-
-
-def refresh_in_background(profile_dir):
-    """캐시만 떼어 놓고 갱신한다. 상태줄(ccp_statusline.py)과 같은 락을 써서 한 번만 돈다."""
-    lock = os.path.join(config_dir(), "cache", f"refresh-{profile_name(profile_dir)}.lock")
-    try:
-        if os.path.exists(lock) and __import__("time").time() - os.path.getmtime(lock) < 120:
-            return
-        os.makedirs(os.path.dirname(lock), exist_ok=True)
-        os.close(os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_TRUNC))
-        # 실패하면 락을 남긴다 — 캐시가 낡은 채라, 락이 없으면 부를 때마다 claude 를 다시 띄운다(2분 뒤 재시도).
-        cmd = f'python3 "{os.path.abspath(__file__)}" refresh "{profile_dir}" && rm -f "{lock}"'
-        subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True,
-                         env=dict(os.environ, CCP_CONFIG_DIR=config_dir()))
-    except Exception:
-        pass
-
-
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "probe"
     pdir = sys.argv[2] if len(sys.argv) > 2 else ""
     if cmd == "cache-path":
         print(cache_path(pdir))
-    elif cmd == "cached":
-        ttl = float(sys.argv[2]) if len(sys.argv) > 2 else 600
-        pdir = sys.argv[3] if len(sys.argv) > 3 else ""
-        line = cached_line(pdir, ttl)
-        if line is None:
-            sys.exit(1)
-        if read_cache(pdir)[1] > 60 and not os.environ.get("CCP_USAGE_NO_BG"):
-            refresh_in_background(pdir)
-        print(line)
     elif cmd == "refresh":
-        # 실패면 종료코드 1 — 부른 쪽(상태줄·메뉴)이 락을 남겨 2분은 다시 안 띄운다.
-        line = probe(pdir)
-        settle(pdir, line)
-        sys.exit(1 if line.split("\t")[6] == "fail" else 0)
+        refresh(pdir)
+    elif cmd == "menu":
+        print(menu(pdir))
     elif cmd == "parse":                 # stdin 의 /usage 원문을 TSV 로 (디버깅용)
         print(parse(sys.stdin.read()))
     else:
-        print(settle(pdir, probe(pdir)))
+        line = probe(pdir)
+        save(pdir, line)
+        print(line)

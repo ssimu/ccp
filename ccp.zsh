@@ -84,14 +84,22 @@ print(f\"{a['emailAddress']}  {(a.get('organizationName') or '')[:26]}\")
 " "$1" "$(_ccp_t z_nologin)" 2>/dev/null || _ccp_tl z_nologin
 }
 
+# macOS 에서 로그인 키체인이 잠긴 맥락(SSH, 데스크톱 세션 밖 launchd)이면 참.
+# 거기서 claude 를 띄우면 키체인 대신 .credentials.json 에 토큰을 돌려 두 곳이 어긋나고 로그인이 끊긴다(ccp_usage.py 참조).
+# "User interaction is not allowed" 일 때만 잠김 — 키체인 파일이 없거나 다른 오류면 평소처럼 진행. CCP_SKIP_KEYCHAIN_CHECK=1 로 끈다.
+_ccp_keychain_locked() {
+  [[ "$OSTYPE" == darwin* ]] || return 1
+  [[ "${CCP_SKIP_KEYCHAIN_CHECK:-0}" == 1 ]] && return 1
+  local kc="$HOME/Library/Keychains/login.keychain-db" out
+  [[ -e "$kc" ]] || return 1
+  out=$(security show-keychain-info "$kc" 2>&1) && return 1
+  [[ "${out:l}" == *"interaction is not allowed"* ]]
+}
+
 # 사용량 한 줄. 조회·파싱·캐시는 ccp_usage.py 가 한다(상태줄이 같은 캐시를 읽어 모델 전용 한도를 보인다).
-# /usage 는 print 모드에서도 동작하고 모델 호출이 아니다(토큰 0). 인자가 비면 기본 프로필.
-# 캐시가 CCP_USAGE_TTL 초(기본 600) 안쪽이면 그것을 바로 쓴다 — probe 는 claude 를 띄워 프로필당 수 초 걸린다.
-# 60초 넘은 캐시는 뒤에서 갱신해 둔다. 늘 새로 받으려면 CCP_USAGE_TTL=0.
+# 계정이 일치하는 로컬 스냅숏을 즉시 표시하고 필요하면 백그라운드에서 갱신한다. 인자가 비면 기본 프로필.
 _ccp_usage_one() {
-  local ttl="${CCP_USAGE_TTL:-600}"
-  (( ttl > 0 )) && python3 "$_CCP_HOME/ccp_usage.py" cached "$ttl" "${1:-}" 2>/dev/null && return 0
-  python3 "$_CCP_HOME/ccp_usage.py" probe "${1:-}" 2>/dev/null \
+  python3 "$_CCP_HOME/ccp_usage.py" menu "${1:-}" 2>/dev/null \
     || printf '\t\t\t\t\t\tfail\t\t\t\t\t\n'
 }
 
@@ -570,6 +578,9 @@ ccp() {
     else CODEX_HOME="$dir" command codex "$@"; fi
     return
   fi
+
+  # 잠긴 키체인 아래에서는 claude 를 띄우지 않는다 — 토큰이 파일로 새어 로그인이 끊긴다.
+  _ccp_keychain_locked && { _ccp_tl z_keychain_locked >&2; return 1; }
 
   # 이 폴더의 대화를 골라 복사본으로 가져오기(또는 --take). 가져올 때는 "다른 프로필이 잡고 있다" 확인을 따로 묻지 않는다 — 복사본이라 엉키지 않는다.
   local -a _CCP_TAKE _CCP_REST

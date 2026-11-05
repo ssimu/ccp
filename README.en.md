@@ -94,6 +94,11 @@ No. None of the three paths calls a model.
 - Codex accounts in the menu: two read-only requests to `codex app-server` (account and rate limits).
 The few seconds before the menu appears are network round trips; they do not count against your quota.
 
+**Claude asks me to log in again, or the menu says `keychain locked`.**
+On macOS the token lives in the login keychain. In an SSH shell or a session started outside the desktop the keychain is locked, so Claude Code falls back to a file, and that split breaks the login later.
+ccp therefore refuses to start claude from a locked shell and shows `keychain locked` in the menu. Open it from a desktop terminal.
+For an account that is already broken: `ccp-recover status`, then `ccp-recover login`. Remote Macs (Herdr/hc) are covered in [docs/recovery.md](docs/recovery.md).
+
 **I want to add, remove or rename accounts.**
 Three ways, same result.
 - In the menu: `ccp` → `a` to add, select a line and `e` to edit, `d` to remove.

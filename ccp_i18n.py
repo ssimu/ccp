@@ -37,6 +37,7 @@ M = {
     "session_short":  ("5h", "5h", "5h", "5h"),
     "nologin":        ("미로그인", "not logged in", "未ログイン", "未登录"),
     "query_fail":     ("조회 실패", "lookup failed", "取得失敗", "查询失败"),
+    "keychain_locked":("키체인 잠김 — 데스크톱 터미널에서", "keychain locked — use a desktop terminal", "キーチェーンがロック — デスクトップの端末で", "钥匙串已锁定 — 请用桌面终端"),
     "soon":           ("곧", "soon", "まもなく", "即将"),
     "left_dh":        ("{d}일{h}시간", "{d}d{h}h", "{d}日{h}時間", "{d}天{h}小时"),
     "left_hm":        ("{h}시간{m}분", "{h}h{m}m", "{h}時間{m}分", "{h}小时{m}分"),
@@ -191,6 +192,10 @@ M = {
     # ── ccp.zsh (printf 형식) ────────────────────────────────────────────
     "z_nologin":       ("(미로그인)", "(not logged in)", "(未ログイン)", "(未登录)"),
     "z_query_fail":    ("(조회 실패)", "(lookup failed)", "(取得失敗)", "(查询失败)"),
+    "z_keychain_locked": ("ccp: 이 셸에서는 macOS 키체인이 잠겨 있어(SSH·데스크톱 밖 세션) claude 를 띄우지 않는다 — 여기서 띄우면 토큰이 파일로 새어 로그인이 끊긴다. 데스크톱 터미널이나 Herdr(데스크톱에서 띄운 core)에서 열 것. 알고 하는 거면 CCP_SKIP_KEYCHAIN_CHECK=1",
+                          "ccp: the macOS keychain is locked in this shell (SSH or a non-desktop session), so claude is not started — it would spill tokens into a file and break the login. Use a desktop terminal or Herdr (core started from the desktop). If you know what you are doing: CCP_SKIP_KEYCHAIN_CHECK=1",
+                          "ccp: このシェルでは macOS キーチェーンがロックされている(SSH・デスクトップ外セッション)ため claude を起動しない — 起動するとトークンがファイルに漏れてログインが切れる。デスクトップの端末か Herdr(デスクトップから起動した core)で開くこと。承知の上なら CCP_SKIP_KEYCHAIN_CHECK=1",
+                          "ccp: 此 shell 中 macOS 钥匙串已锁定(SSH 或非桌面会话),因此不启动 claude — 否则令牌会写入文件并导致登录失效。请在桌面终端或 Herdr(从桌面启动的 core)中打开。如确知后果: CCP_SKIP_KEYCHAIN_CHECK=1"),
     "z_querying":      ("  사용량 조회 중… (%d개)", "  checking usage… (%d)", "  使用量を取得中… (%d件)", "  正在查询用量… (%d 个)"),
     "z_tsv_header":    ("# 도구\\t이름\\t별칭\\t설명", "# tool\\tname\\talias\\tnote", "# ツール\\t名前\\t別名\\tメモ", "# 工具\\t名称\\t别名\\t备注"),
     "z_created":       ("생성: %s %s", "created: %s %s", "作成: %s %s", "已创建: %s %s"),

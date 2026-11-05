@@ -64,99 +64,176 @@ def test_캐시_쓰고_읽기():
         assert ccp_usage.read_cache("/x/profiles/none") == (None, None)
 
 
-def _age(path, sec):
-    t = __import__("time").time() - sec
-    os.utime(path, (t, t))
+def test_실패하면_한_번_더_시도하고_fail_은_캐시에_안_쓴다(monkeypatch, tmp_path):
+    import ccp_usage
+    monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(ccp_usage, "logged_in", lambda d: True)
+    outs = iter(["", "Current session: 5% used\nCurrent week (all models): 7% used\n"])
+    monkeypatch.setattr(ccp_usage, "fetch", lambda d: next(outs))
+    line = ccp_usage.probe("/x/p")
+    assert line.split("\t")[6] == "ok" and line.split("\t")[0] == "7"
+
+    ccp_usage.save("/x/p", line)
+    monkeypatch.setattr(ccp_usage, "fetch", lambda d: "")
+    ccp_usage.save("/x/p", ccp_usage.probe("/x/p"))
+    cached, _ = ccp_usage.read_cache("/x/p")
+    assert cached[6] == "ok" and cached[0] == "7"
 
 
-def test_캐시_먼저_남은분_보정():
-    with tempfile.TemporaryDirectory() as d:
-        os.environ["CCP_CONFIG_DIR"] = d
-        line = ccp_usage.parse(TEXT, NOW)
-        ccp_usage.write_cache("/x/profiles/team", line)
-        _age(ccp_usage.cache_path("/x/profiles/team"), 125)
-        got = fields(ccp_usage.cached_line("/x/profiles/team", 600))
-        want = fields(line)
-        assert int(got[1]) == int(want[1]) - 2 and int(got[3]) == int(want[3]) - 2
-        assert got[0] == want[0] and got[4] == "Fable"
-        assert ccp_usage.cached_line("/x/profiles/team", 60) is None          # ttl 넘음
-        assert ccp_usage.cached_line("/x/profiles/none", 600) is None
-
-
-def test_캐시_리셋이_지났으면_버림():
-    with tempfile.TemporaryDirectory() as d:
-        os.environ["CCP_CONFIG_DIR"] = d
-        line = fields(ccp_usage.parse(TEXT, NOW)); line[3] = "3"
-        ccp_usage.write_cache("", "\t".join(line))
-        _age(ccp_usage.cache_path(""), 300)
-        assert ccp_usage.cached_line("", 600) is None
-
-
-def test_조회_실패면_리셋_전_예전_캐시로(monkeypatch=None):
-    with tempfile.TemporaryDirectory() as d:
-        os.environ["CCP_CONFIG_DIR"] = d
-        ccp_usage.write_cache("", ccp_usage.parse(TEXT, NOW))
-        _age(ccp_usage.cache_path(""), 3 * 3600)
-        assert ccp_usage.cached_line("", 600) is None
-        assert fields(ccp_usage.cached_line("", 7 * 86400))[4] == "Fable"
-
-
-def test_실패도_5분은_캐시():
-    with tempfile.TemporaryDirectory() as d:
-        os.environ["CCP_CONFIG_DIR"] = d
-        fail = "\t".join([""] * 6 + ["fail"] + [""] * 5)
-        ccp_usage.write_cache("", fail)
-        assert fields(ccp_usage.cached_line("", 600))[6] == "fail"
-        _age(ccp_usage.cache_path(""), 400)
-        assert ccp_usage.cached_line("", 600) is None
-
-
-def test_프로브는_부가트래픽_차단을_켜지_않는다():
-    """CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 이 켜지면 claude 가 /api/oauth/usage 응답을 못 받는다.
-    그때 claude 는 마지막으로 저장해 둔 값을 조용히 보이고(낡은 %), 저장된 값이 없으면 한도 줄 없이 끝난다.
-    ccp 가 직접 켜는 것도, 바깥 셸에서 물려받는 것도 안 된다."""
+def test_프로브는_부가_트래픽을_끄지_않는다(monkeypatch, tmp_path):
+    # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 가 켜지면 claude 는 사용량 API 응답을 받지 못하고,
+    # 1시간 안에 남겨 둔 스냅숏(.claude.json 의 cachedUsageUtilization)이 있을 때만 한도 줄을 찍는다.
+    # 최근에 직접 쓰지 않은 프로필은 줄이 통째로 빠져 fail 이 된다 — 부모 환경에 켜져 있어도 지운다.
+    import subprocess
     seen = {}
-
-    class R:
-        stdout = TEXT
 
     def fake_run(cmd, **kw):
         seen["env"] = kw["env"]
-        return R()
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    real, had = ccp_usage.subprocess.run, os.environ.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
-    ccp_usage.subprocess.run = fake_run
-    os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"      # 물려받은 경우까지
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            os.environ["CCP_CONFIG_DIR"] = d
-            assert ccp_usage.fetch("/x/profiles/team") == TEXT
-    finally:
-        ccp_usage.subprocess.run = real
-        if had is None:
-            os.environ.pop("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", None)
-        else:
-            os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = had
-    leaked = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" in seen["env"]     # env 통째로 단언하면 실패 때 키까지 찍힌다
-    assert not leaked
-    assert seen["env"].get("CLAUDE_CONFIG_DIR") == "/x/profiles/team"
+    monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+    monkeypatch.setattr(ccp_usage.subprocess, "run", fake_run)
+    ccp_usage.fetch("/x/p")
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in seen["env"]
+    assert seen["env"]["CLAUDE_CONFIG_DIR"] == "/x/p"
 
 
-def test_갱신이_실패해도_성한_캐시를_덮지_않는다():
-    """백그라운드 refresh 가 느린 날(claude 가 40초 넘게 걸려 시간 초과) fail 을 덮어쓰면
-    메뉴는 5분간 '조회 실패', 상태줄은 모델 한도 조각이 사라진다. 성한 값이 있으면 그대로 둔다."""
-    with tempfile.TemporaryDirectory() as d:
-        os.environ["CCP_CONFIG_DIR"] = d
-        fail = "\t".join([""] * 6 + ["fail"] + [""] * 5)
-        ok = ccp_usage.parse(TEXT, NOW)
-        ccp_usage.write_cache("", ok)
-        _age(ccp_usage.cache_path(""), 900)
-        shown = ccp_usage.settle("", fail)
-        assert fields(shown)[6] == "ok" and fields(shown)[4] == "Fable"       # 화면엔 예전 값
-        row, age = ccp_usage.read_cache("")
-        assert row[6] == "ok" and age > 800                                   # 캐시는 손대지 않음(낡은 채로 — 다시 시도된다)
-        # 성한 값이 없으면 fail 을 남긴다 — 그래야 메뉴가 5분은 다시 안 두드린다
-        assert fields(ccp_usage.settle("/x/profiles/none", fail))[6] == "fail"
-        assert ccp_usage.read_cache("/x/profiles/none")[0][6] == "fail"
-        # 성공은 늘 덮어쓴다
-        assert ccp_usage.settle("", ok) == ok and ccp_usage.read_cache("")[1] < 5
+def native_snapshot(monkeypatch, tmp_path, age=10, account='a'):
+    import json, time
+    p = tmp_path / 'profile'
+    p.mkdir()
+    (p / '.claude.json').write_text(json.dumps({
+        'oauthAccount': {'emailAddress': 'test@example.com', 'accountUuid': 'a'},
+        'cachedUsageUtilization': {'accountUuid': account, 'fetchedAtMs': (time.time()-age)*1000,
+          'utilization': {'limits': [
+            {'kind': 'session', 'percent': 12, 'resets_at': '2099-01-01T00:00:00Z'},
+            {'kind': 'weekly_all', 'percent': 83, 'resets_at': '2099-01-02T00:00:00Z'},
+            {'kind': 'weekly_scoped', 'percent': 100, 'scope': {'model': {'display_name': 'Fable'}}}
+          ]}}
+    }))
+    monkeypatch.setenv('CCP_CONFIG_DIR', str(tmp_path / 'config'))
+    return str(p)
+
+
+def test_menu_uses_native_snapshot_without_starting_claude(monkeypatch, tmp_path):
+    p = native_snapshot(monkeypatch, tmp_path)
+    monkeypatch.setattr(ccp_usage, 'fetch', lambda *a, **k: (_ for _ in ()).throw(AssertionError('must not block')))
+    row = ccp_usage.menu(p).split('\t')
+    assert (row[0], row[2], row[4], row[5], row[6]) == ('83', '12', 'Fable', '100', 'ok')
+    assert 'cache' in row[11]
+
+
+def test_snapshot_from_other_account_is_rejected(monkeypatch, tmp_path):
+    p = native_snapshot(monkeypatch, tmp_path, account='other')
+    assert ccp_usage.native_cache(p) == (None, None)
+
+
+def test_stale_snapshot_is_visible_but_not_recommended(monkeypatch, tmp_path):
+    p = native_snapshot(monkeypatch, tmp_path, age=3600)
+    monkeypatch.setattr(ccp_usage, 'start_refresh', lambda *a: None)
+    row = ccp_usage.menu(p).split('\t')
+    assert row[0] == '83' and row[6] == 'stale'
+    assert 'cache' in row[11]
+
+
+def test_cli_empty_output_can_still_update_native_snapshot(monkeypatch, tmp_path):
+    p = native_snapshot(monkeypatch, tmp_path)
+    monkeypatch.setattr(ccp_usage, 'fetch', lambda *a, **k: '')
+    assert ccp_usage.probe(p).split('\t')[0] == '83'
+
+
+def test_missing_login_does_not_launch_background_refresh(monkeypatch, tmp_path):
+    monkeypatch.setattr(ccp_usage, 'start_refresh', lambda *a: (_ for _ in ()).throw(AssertionError('no login')))
+    assert ccp_usage.menu(str(tmp_path / 'missing')).split('\t')[6] == 'nologin'
+
+
+def test_refresh_is_throttled(monkeypatch, tmp_path):
+    p = native_snapshot(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(ccp_usage, 'probe', lambda *a, **k: calls.append(a) or ccp_usage.parse(TEXT, NOW))
+    ccp_usage.refresh(p)
+    ccp_usage.refresh(p)
+    assert len(calls) == 1
+
+
+def test_expired_reset_is_stale_even_when_recent(monkeypatch, tmp_path):
+    import json
+    from pathlib import Path
+    p = native_snapshot(monkeypatch, tmp_path)
+    path = Path(p) / '.claude.json'
+    data = json.loads(path.read_text())
+    data['cachedUsageUtilization']['utilization']['limits'][0]['resets_at'] = '2000-01-01T00:00:00Z'
+    path.write_text(json.dumps(data))
+    assert ccp_usage.native_cache(p)[0][6] == 'stale'
+
+
+def test_stale_renderer_keeps_usage_but_does_not_recommend(tmp_path):
+    import subprocess
+    from pathlib import Path
+    row = ['83', '120', '12', '30', 'Fable', '0', 'stale', '', '', '10080', '300', 'cache old']
+    (tmp_path / '0').write_text('\t'.join(row))
+    renderer = Path(ccp_usage.__file__).with_name('ccp_render.py')
+    result = subprocess.run([sys.executable, str(renderer), str(tmp_path), '-', '', 'claude:test'], capture_output=True, text=True, check=True)
+    assert '83%' in result.stdout and 'stale' in result.stdout
+    assert 'rec\t0' not in (tmp_path / '_meta').read_text()
+
+
+# ── 키체인 잠김 가드 ────────────────────────────────────────────────────────
+# macOS 에서 로그인 키체인을 못 여는 맥락(SSH, 데스크톱 세션 밖 launchd)에서 claude 를 띄우면
+# 키체인 대신 .credentials.json 에 토큰을 돌려 두 곳이 어긋나고, 결국 로그인이 끊긴다. 거기서는 claude 를 띄우지 않는다.
+class _R:
+    def __init__(self, rc, err=""): self.returncode, self.stderr, self.stdout = rc, err, ""
+
+
+def _darwin(monkeypatch, tmp_path, rc, err=""):
+    monkeypatch.setattr(ccp_usage.sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path)); monkeypatch.delenv("CCP_SKIP_KEYCHAIN_CHECK", raising=False)
+    (tmp_path / "Library/Keychains").mkdir(parents=True); (tmp_path / "Library/Keychains/login.keychain-db").write_text("")
+    calls = []
+    monkeypatch.setattr(ccp_usage.subprocess, "run", lambda cmd, **k: (calls.append(cmd), _R(rc, err))[1])
+    return calls
+
+
+def test_키체인_잠김은_security_의_interaction_not_allowed_로_판정(monkeypatch, tmp_path):
+    _darwin(monkeypatch, tmp_path, 36, "security: SecKeychainCopySettings: User interaction is not allowed.")
+    assert ccp_usage.keychain_locked() is True
+
+
+def test_키체인이_열려_있으면_잠김_아님(monkeypatch, tmp_path):
+    _darwin(monkeypatch, tmp_path, 0)
+    assert ccp_usage.keychain_locked() is False
+
+
+def test_다른_오류나_키체인_파일_없음은_잠김으로_보지_않는다(monkeypatch, tmp_path):
+    _darwin(monkeypatch, tmp_path, 50, "could not be found")
+    assert ccp_usage.keychain_locked() is False
+    os.remove(tmp_path / "Library/Keychains/login.keychain-db")
+    assert ccp_usage.keychain_locked() is False
+
+
+def test_환경변수로_가드를_끌_수_있다(monkeypatch, tmp_path):
+    _darwin(monkeypatch, tmp_path, 36, "User interaction is not allowed")
+    monkeypatch.setenv("CCP_SKIP_KEYCHAIN_CHECK", "1")
+    assert ccp_usage.keychain_locked() is False
+
+
+def test_맥_아니면_검사하지_않는다(monkeypatch, tmp_path):
+    calls = _darwin(monkeypatch, tmp_path, 36, "User interaction is not allowed")
+    monkeypatch.setattr(ccp_usage.sys, "platform", "linux")
+    assert ccp_usage.keychain_locked() is False and calls == []
+
+
+def test_잠겨_있으면_menu_는_claude_를_띄우지_않고_이유를_적는다(monkeypatch, tmp_path):
+    monkeypatch.setattr(ccp_usage, "keychain_locked", lambda: True)
+    monkeypatch.setattr(ccp_usage, "logged_in", lambda d: True)
+    monkeypatch.setattr(ccp_usage, "start_refresh", lambda d: (_ for _ in ()).throw(AssertionError("refresh 가 돌면 안 된다")))
+    f = fields(ccp_usage.menu(""))
+    assert f[6] == "fail" and f[11] == "keychain-locked" and len(f) == 12
+
+
+def test_잠겨_있으면_refresh_도_조용히_건너뛴다(monkeypatch, tmp_path):
+    monkeypatch.setattr(ccp_usage, "keychain_locked", lambda: True)
+    monkeypatch.setattr(ccp_usage, "probe", lambda d, tries=1: (_ for _ in ()).throw(AssertionError("probe 가 돌면 안 된다")))
+    monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path))
+    ccp_usage.refresh("")

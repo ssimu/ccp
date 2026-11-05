@@ -235,10 +235,33 @@ out="$(CCP_LANG=en run 'ccp claude:기본')"
 check "언어가 en 이어도 '기본' 으로 기본 프로필을 부를 수 있다" "$out" "CLAUDE_CONFIG_DIR=<unset>"
 out="$(CCP_LANG=ko run 'ccp claude:default')"
 check "언어가 ko 여도 'default' 로 부를 수 있다" "$out" "CLAUDE_CONFIG_DIR=<unset>"
-out="$(env -u CCP_LANG LANG=ja_JP.UTF-8 zsh -c "source '$REPO/ccp.zsh'; echo LANG=\$CCP_LANG")"
+out="$(env -u CCP_LANG -u LC_ALL -u LC_MESSAGES LANG=ja_JP.UTF-8 zsh -c "source '$REPO/ccp.zsh'; echo LANG=\$CCP_LANG")"
 check "CCP_LANG 이 없으면 로케일에서 정한다 (ja_JP → ja)" "$out" "LANG=ja"
 out="$(env -u CCP_LANG LANG=de_DE.UTF-8 zsh -c "source '$REPO/ccp.zsh'; echo LANG=\$CCP_LANG")"
 check "모르는 로케일은 en" "$out" "LANG=en"
+
+print "키체인 잠김 가드 (macOS)"
+# 가짜 HOME 에 키체인 파일을 두고, security 를 '잠김' 으로 흉내 낸다 — 그 셸에서는 claude 를 띄우면 안 된다.
+mkdir -p "$HOME/Library/Keychains"; : > "$HOME/Library/Keychains/login.keychain-db"
+cat > "$T/bin/security" <<'EOF2'
+#!/bin/sh
+echo "security: SecKeychainCopySettings: User interaction is not allowed." >&2; exit 36
+EOF2
+chmod +x "$T/bin/security"
+out="$(run 'ccp team')"
+checkno "잠긴 키체인 아래에서는 claude 를 띄우지 않는다" "$out" "claude CLAUDE_CONFIG_DIR="
+check   "왜 안 띄우는지와 어디서 열지 알려준다"          "$out" "키체인이 잠겨"
+out="$(CCP_SKIP_KEYCHAIN_CHECK=1 run 'ccp team')"
+check   "CCP_SKIP_KEYCHAIN_CHECK=1 이면 띄운다"           "$out" "claude CLAUDE_CONFIG_DIR=$HOME/.claude-profiles/team"
+out="$(run 'ccp codex:work')"
+check   "codex 는 키체인을 안 쓰므로 그대로 띄운다"        "$out" "codex CODEX_HOME="
+cat > "$T/bin/security" <<'EOF2'
+#!/bin/sh
+echo "Keychain \"$2\" no-timeout"; exit 0
+EOF2
+out="$(run 'ccp team')"
+check   "키체인이 열려 있으면 평소대로 띄운다"              "$out" "claude CLAUDE_CONFIG_DIR=$HOME/.claude-profiles/team"
+rm -f "$T/bin/security" "$HOME/Library/Keychains/login.keychain-db"
 
 print "예전 3칸 TSV 호환"
 printf 'old\tcco\t설명\n' > "$TSV"

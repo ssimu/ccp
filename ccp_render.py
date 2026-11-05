@@ -181,6 +181,8 @@ def note_of(r,short,full=False):
     elif g==0: note=why
     elif g==1: note=t('note_sess_out') + ('' if short else t('note_frees_in',t=left(r['sm']) or '?'))
     elif g==2: note=t('note_week_out') + ('' if short else t('note_frees_in',t=left(r['wm']) or '?'))
+    elif r['st']=='stale': note='— stale'
+    elif r['extra']=='keychain-locked': note='— '+t('keychain_locked'); r['extra']=''
     else:      note='— '+(t('nologin') if r['st']=='nologin' else t('query_fail'))
     if g==0 and r['mp'] is not None and r['mp']>=100:
         note+=t('note_model_out',m=mlabel)
@@ -330,7 +332,7 @@ def card(r,hl,fold=False):
     title=[(name_cell(r,is_rec).rstrip()+'  ',base),(note_of(r,False,True),note_col(r,base))]
     out=[finish(title,hl)]
     # fold = 막대를 접고 제목 줄만. 화면이 낮을 때 '못 쓰는 계정'부터 접는다 — 어차피 볼 게 없다.
-    if r['st']!='ok' or fold: return out
+    if r['st'] not in ('ok', 'stale') or fold: return out
     ind=' '*6
     room=COLS-1-dw(ind+pad(LABELS[0],LABW)+' ')-GBARW-1-4-3
     tw=elapsed_frac(r['wm'],r['ww']); ts_=elapsed_frac(r['sm'],r['sw'])
