@@ -149,7 +149,9 @@ def parse(text, now=None):
     if w is None and s is None:
         return "\t".join([""] * 6 + ["fail"] + [""] * 5)
     # claude 는 7일/5시간 창 고정. 뒤 세 칸은 codex 와 형식을 맞추려고 붙인다.
-    return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
+    # 주간은 있는데 세션 줄이 없으면 5시간 창이 아직 안 열린 것 — 0% 로(비워 두면 메뉴에 '-' 로 떠서 조회 실패처럼 보인다)
+    s_val = num(s) or ("0" if num(w) else "")
+    return "\t".join([num(w), mins(wdt), s_val, mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
 
 
 STALE_AFTER = 1800   # 초. 이 넘게 묵은 스냅숏만 '낡음' 표시 — 주간 한도는 느리게 움직이므로 5분은 너무 공격적이었다(전부 낡음으로 떠서 추천·그래프에서 빠짐)

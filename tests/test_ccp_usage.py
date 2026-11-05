@@ -294,3 +294,8 @@ def test_menu_는_갱신_캐시_파일이_스냅숏보다_새로우면_그쪽을
     f = fields(ccp_usage.menu(str(prof)))
     assert f[0] == "12" and f[6] == "ok" and f[11] == ""      # 스냅숏(50%, 50분 전)이 아니라 방금 쓴 캐시(12%)
 
+
+def test_parse_주간만_있고_세션_줄이_없으면_세션은_0():
+    text = "Current week (all models): 25% used · resets Sep 14 at 3pm (Asia/Seoul)\n"
+    f = fields(ccp_usage.parse(text, NOW))
+    assert f[0] == "25" and f[2] == "0" and f[3] == "" and f[6] == "ok"

@@ -104,12 +104,13 @@ def clock(ts,m):
     if m is not None and m<1440: return tm
     mo,da=d.split('/'); return f'{int(mo)}/{int(da)}'
 def rst(m,ts,pct):
-    # 리셋 칸: '2시간42분→01:19'. 남은 시간과 시각을 같이 둬야 Claude 화면과 바로 대조된다.
+    # 리셋 칸: '3일14시간 뒤 · 11/9(월) 15:00' — 남은 시간과 풀리는 시각을 같이 둬야 Claude 화면과 바로 대조된다.
     if m is None:
-        return t('new_window') if pct==0 else '-'      # 세션 창이 아직 안 열렸으면 리셋 시각도 없다
+        return t('new_window_full') if pct==0 else '-'      # 세션 창이 아직 안 열렸으면 리셋 시각도 없다
     if m<=0: return t('soon')
-    c=clock(ts,m) if SHOWCLOCK else ''
-    return left(m)+('→'+c if c else '')
+    if not SHOWCLOCK: return left(m)
+    return t('rst_in',t=left(m),w=when(m,ts))
+def leftpct(p): return None if p is None else max(0,100-p)
 def bar(p,n=5):
     if p is None: return '·'*n
     f=max(0,min(n,int(round(p/100*n))))
@@ -119,7 +120,7 @@ def pctstr(v): return rpad(f'{v}%',4) if v is not None else rpad('-',4)
 
 NUMW=4 if numbered else 0
 NAMEW=14
-BARW=5; PCTW=4; RSTW=17   # '18시간32분→03:59' 가 17폭이다 — 16이면 옆 칸을 먹는다
+BARW=5; PCTW=4; RSTW=31   # '3일14시간 뒤 · 11/10(화) 08:00' 이 29폭이다(한글 2폭) — 30이면 옆 칸과 한 칸 띈다
 LEAD=2+2+NUMW+NAMEW               # 이름 칸까지의 폭
 COLS=shutil.get_terminal_size((160,40)).columns if tty else 10**6
 
@@ -194,12 +195,14 @@ def name_cell(r,is_rec):
     return '  '+head+numc+pad(r['name'],NAMEW)
 
 def usage_segs(r,base,dim,with_bar):
+    # 숫자·막대는 '남은 양'(100-사용). 색은 사용량 기준(70% 노랑, 90% 빨강)이라 막는 쪽이 튄다.
     segs=[]
     for pct,m,ts in ((r['w'],r['wm'],r['wt']),(r['s'],r['sm'],r['stt'])):
-        if with_bar: segs.append((bar(pct,BARW)+' ',base))
-        segs.append((pctstr(pct),hot(pct,base,dim)))
+        rem=leftpct(pct)
+        if with_bar: segs.append((bar(rem,BARW)+' ',base))
+        segs.append((pctstr(rem),hot(pct,base,dim)))
         segs.append((' '+pad(rst(m,ts,pct),RSTW),base))
-    segs.append((pad(pctstr(r['mp']),6),hot(r['mp'],base,dim)))
+    segs.append((pad(pctstr(leftpct(r['mp'])),6),hot(r['mp'],base,dim)))
     return segs
 
 def finish(segs,hl):
@@ -228,16 +231,16 @@ def header_lines():
         out=[t('tbl_legend1_narrow'),
              (t('tbl_legend2_clock',m=mlabel) if SHOWCLOCK else t('tbl_legend2_noclock',m=mlabel))]
     else:
-        out=[t('tbl_legend1'), t('tbl_legend2',m=mlabel)]
+        out=[t('tbl_legend1_left'), t('tbl_legend2_left',m=mlabel)]
     out=[C(cut(x,COLS-1),'2') for x in out]
     if LAYOUT!='two':
         # 칸 구조를 그대로 따른다: [막대 ](wide만) + %(4) + ' '+리셋(16)
         barw=(BARW+1 if LAYOUT=='wide' else 0)
-        lab=(t('col_weekly_used'),t('col_sess_used')) if LAYOUT=='wide' else (WEEKLY,SESSION)
+        lab=(t('col_weekly_left'),t('col_sess_left'))
         out.append(C(' '*LEAD
-            +pad(lab[0],barw+PCTW)+pad(t('col_reset'),1+RSTW)
-            +pad(lab[1],barw+PCTW)+pad(t('col_reset'),1+RSTW)
-            +pad(mlabel,6),'2'))
+            +pad(lab[0],barw+PCTW)+pad(t('col_reset_in'),1+RSTW)
+            +pad(lab[1],barw+PCTW)+pad(t('col_reset_in'),1+RSTW)
+            +pad(t('col_model_left',m=mlabel),6),'2'))
     return out
 
 def build_table(hl_idx):
@@ -425,8 +428,8 @@ def timeline_lines():
             wh=when(r['wm'],r['wt'])
             desc=t('rd_soon')
             if r['wm']>0:
-                cands=((t('tl_weekly_model',wh=wh,w=w,m=mlabel,mp=r["mp"]), f'{wh} · {mlabel} {r["mp"]}% ◀', wh)
-                       if r['flag'] else (t('tl_weekly_used',wh=wh,w=w), f'{wh} · {w}%', wh))
+                cands=((t('tl_weekly_model_left',wh=wh,w=leftpct(w),m=mlabel,mp=leftpct(r["mp"])), f'{wh} · {mlabel} {leftpct(r["mp"])}% ◀', wh)
+                       if r['flag'] else (t('tl_weekly_left',wh=wh,w=leftpct(w)), f'{wh} · {leftpct(w)}%', wh))
                 for cand in cands:
                     desc=cand
                     if dw(cand)<=room: break
@@ -453,8 +456,8 @@ def build(hl_idx):
         # 여기까지 와도 안 들어가면 표로 떨어진다(재그리기가 화면 위로 넘치면 깨진다)
         FORCED=True
     tbl=build_table(hl_idx)
-    # 표는 머리글이 2~3행이라 그 뒤에 끼운다
-    h=3 if LAYOUT!='two' else 2
+    # 표는 범례 2행 뒤에 타임라인을 끼우고, 열 제목(3행째)은 타임라인 다음·계정 행 바로 앞에 둔다
+    h=2
     tt=tbl[:1+h]+timeline_lines()+tbl[1+h:]
     return tt if len(tt)+2<=ROWS_H else tbl
 
