@@ -12,7 +12,7 @@ T = lambda y, mo, d, h, mi: str(int(time.mktime((y, mo, d, h, mi, 0, 0, 0, -1)))
 ROWS = [
     ["/p/f7745fb0-1.jsonl", "f7745fb0-c595-4ea1-a7dc-6df3fc6abc94", "09-21 13:27", "main", "H100 Gemma 긴 입력 처리", "", "", "ddc14aa5-38a1-4c1d-815f-6a3d21c951e3", "49079054", "", T(2026, 9, 21, 13, 27)],
     ["/p/76b78e19-1.jsonl", "76b78e19-0abb-4072-98d0-d536f5f1c1b8", "09-20 12:45", "feat/x", "Claude API로 정답 확장", "default", "bg", "", "1200000", "", T(2026, 9, 20, 12, 45)],
-    ["/p/911acc43-1.jsonl", "911acc43-d9d4-4fdf-a0c9-53fd8f1cb7e4", "09-17 10:52", "main", "지금 보고 있는 대화", "", "", "", "3000", "ra00203", T(2026, 9, 17, 10, 52)],
+    ["/p/911acc43-1.jsonl", "911acc43-d9d4-4fdf-a0c9-53fd8f1cb7e4", "09-17 10:52", "main", "지금 보고 있는 대화", "", "", "", "3000", "team2", T(2026, 9, 17, 10, 52)],
     ["/p/5e9877ff-1.jsonl", "5e9877ff-4c92-468e-8489-bdc5d5397480", "09-01 10:52", "main", "옛 대화", "", "", "", "800", "", T(2026, 9, 1, 10, 52)],
 ]
 
@@ -28,36 +28,36 @@ def find(lines, needle):
 
 
 def test_첫_줄은_새_대화이고_대화는_1번부터():
-    lines = plain(ccp_pick.build_lines(ROWS, "ra00203", hl=0, cols=120, now=NOW))
-    assert "ra00203" in lines[0]
+    lines = plain(ccp_pick.build_lines(ROWS, "team2", hl=0, cols=120, now=NOW))
+    assert "team2" in lines[0]
     new = find(lines, "0) 새 대화"); assert "▶" in new
     r1 = find(lines, "1) f7745fb0"); assert "13:27" in r1 and "main" in r1 and "H100 Gemma" in r1
     r2 = find(lines, "2) 76b78e19"); assert "feat/x" in r2
 
 
 def test_최근순_묶음_구분선_오늘_이번주_이전():
-    lines = plain(ccp_pick.build_lines(ROWS, "ra00203", hl=0, cols=120, now=NOW))
+    lines = plain(ccp_pick.build_lines(ROWS, "team2", hl=0, cols=120, now=NOW))
     i_today, i_week, i_old = (next(i for i, ln in enumerate(lines) if k in ln) for k in ("오늘", "이번 주", "이전"))
     assert i_today < lines.index(find(lines, "1) f7745fb0")) < i_week < lines.index(find(lines, "2) 76b78e19"))
     assert i_week < lines.index(find(lines, "3) 911acc43")) < i_old < lines.index(find(lines, "4) 5e9877ff"))
 
 
 def test_시각은_상대적으로_오늘은_시간만_어제는_어제_그_전은_날짜():
-    lines = plain(ccp_pick.build_lines(ROWS, "ra00203", hl=0, cols=120, now=NOW))
+    lines = plain(ccp_pick.build_lines(ROWS, "team2", hl=0, cols=120, now=NOW))
     assert "13:27" in find(lines, "1) f7745fb0") and "09-21" not in find(lines, "1) f7745fb0")
     assert "어제 12:45" in find(lines, "2) 76b78e19")
     assert "09-17" in find(lines, "3) 911acc43")
 
 
 def test_크기와_표시들():
-    lines = plain(ccp_pick.build_lines(ROWS, "ra00203", hl=0, cols=120, now=NOW))
+    lines = plain(ccp_pick.build_lines(ROWS, "team2", hl=0, cols=120, now=NOW))
     assert "47MB" in find(lines, "1) f7745fb0") and "ddc14aa5 로 이어짐" in find(lines, "1) f7745fb0")
     assert "1.1MB" in find(lines, "2) 76b78e19") and "기본 프로필이 잡고 있음" in find(lines, "2) 76b78e19")
     assert "3KB" in find(lines, "3) 911acc43") and "이 계정에서 열려 있음" in find(lines, "3) 911acc43")
 
 
 def test_강조는_한_줄에만_그리고_색_모드에서는_반전():
-    lines = ccp_pick.build_lines(ROWS, "ra00203", hl=2, cols=120, now=NOW, ansi=True)
+    lines = ccp_pick.build_lines(ROWS, "team2", hl=2, cols=120, now=NOW, ansi=True)
     marked = [ln for ln in lines if "▶" in ln]
     assert len(marked) == 1 and "2) 76b78e19" in ccp_pick.strip_ansi(marked[0]) and "\033[7m" in marked[0]
 
@@ -89,7 +89,7 @@ def test_비대화형은_번호를_읽어_meta_에_적는다(tmp_path):
 
 
 def test_크기와_표시는_오른쪽_끝에_맞춰_정렬된다():
-    lines = ccp_pick.build_lines(ROWS, "ra00203", hl=0, cols=120, now=NOW)
+    lines = ccp_pick.build_lines(ROWS, "team2", hl=0, cols=120, now=NOW)
     items = [ln for ln in plain(lines) if ") " in ln and "새 대화" not in ln]
     assert items and all(ccp_pick.dw(ln) == 119 for ln in items), [ccp_pick.dw(ln) for ln in items]
     assert items[0].rstrip().endswith("ddc14aa5 로 이어짐") and items[1].rstrip().endswith("기본 프로필이 잡고 있음")

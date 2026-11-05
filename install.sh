@@ -8,6 +8,7 @@
 # 하는 일:
 #   1. ~/.zshrc 에 ccp.zsh 를 source 하는 한 줄 (clone 한 위치를 그대로 쓴다)
 #   2. ~/.config/ccp/{profiles.tsv,config.zsh,statusline.conf} 를 예시에서 복사 (이미 있으면 그대로 둠)
+#   2b. ~/.local/bin/ccp-recover — 로그인 점검·복구 보조 명령 (docs/recovery.md)
 #   3. profiles.tsv 대로 프로필 디렉터리 생성 (ccp-sync)
 #   4. ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정 (--no-statusline 이면 건너뜀)
 #      codex 가 있으면 ~/.codex/config.toml 의 [tui].status_line 에 모델·한도 항목도 넣는다(있으면 그대로)
@@ -34,7 +35,7 @@ ok()   { printf '  ✓ %s\n' "$1"; }
 note() { NOTES+=("$1"); }
 step() { printf '\n▸ %s\n' "$1"; }
 
-step "0/4  필요한 것"
+step "0/5  필요한 것"
 for c in zsh python3 claude; do
     if command -v "$c" >/dev/null 2>&1; then ok "$c"
     else
@@ -46,7 +47,7 @@ for c in zsh python3 claude; do
 done
 command -v codex >/dev/null 2>&1 && ok "codex (선택 — 있으면 메뉴에 함께 뜬다)"
 
-step "1/4  ~/.zshrc"
+step "1/5  ~/.zshrc"
 LINE="[ -f \"$DIR/ccp.zsh\" ] && source \"$DIR/ccp.zsh\""
 if [ ! -f "$ZRC" ]; then
     printf '%s\n' "$LINE" > "$ZRC"
@@ -61,7 +62,7 @@ else
     ok "$ZRC 에 source 한 줄 추가 (백업 생성)"
 fi
 
-step "2/4  설정 $CFG"
+step "2/5  설정 $CFG"
 mkdir -p "$CFG"
 for f in profiles.tsv config.zsh statusline.conf; do
     if [ -f "$CFG/$f" ]; then ok "$f (그대로 둠)"
@@ -71,14 +72,23 @@ for f in profiles.tsv config.zsh statusline.conf; do
     fi
 done
 
-step "3/4  프로필 디렉터리"
+step "3/5  ccp-recover (로그인 점검·복구 보조 명령)"
+BIN="$HOME/.local/bin"; mkdir -p "$BIN"
+if [ -f "$BIN/ccp-recover" ] && grep -qF "$DIR/ccp_recovery.py" "$BIN/ccp-recover"; then ok "ccp-recover (이미 있음)"
+else
+    printf '#!/bin/sh\nexec /usr/bin/env python3 "%s/ccp_recovery.py" "$@"\n' "$DIR" > "$BIN/ccp-recover"
+    chmod +x "$BIN/ccp-recover"; ok "ccp-recover → $DIR/ccp_recovery.py"
+    case ":$PATH:" in *":$BIN:"*) ;; *) note "$BIN 이 PATH 에 없다. ~/.zshrc 에 export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
+fi
+
+step "4/5  프로필 디렉터리"
 if command -v zsh >/dev/null 2>&1; then
     CCP_CONFIG_DIR="$CFG" zsh -c "source '$DIR/ccp.zsh'; ccp-sync" | sed 's/^/  /'
 else
     note "zsh 가 없어 프로필 디렉터리를 만들지 못했다. zsh 설치 후 'ccp-sync'."
 fi
 
-step "4/4  statusline"
+step "5/5  statusline"
 if [ "$STATUSLINE" = 1 ]; then
     mkdir -p "$CC"
     dst="$CC/statusline-command.sh"
