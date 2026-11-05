@@ -57,7 +57,7 @@ for i,nm in enumerate(names):
 mlabel=next((r['mn'] for r in rows if r['mn']),t('model'))
 WEEKLY=t('weekly'); SESSION=t('session')
 for r in rows:
-    if r['st']!='ok':
+    if r['st'] not in ('ok','stale'):
         r['grp']=3; r['slack']=-1; r['rate']=-1; r['remain']=None; r['bind']=WEEKLY; r['bindp']=None; r['flag']=False; continue
     w=r['w'] if r['w'] is not None else 0
     s=r['s'] if r['s'] is not None else 0
@@ -181,7 +181,6 @@ def note_of(r,short,full=False):
     elif g==0: note=why
     elif g==1: note=t('note_sess_out') + ('' if short else t('note_frees_in',t=left(r['sm']) or '?'))
     elif g==2: note=t('note_week_out') + ('' if short else t('note_frees_in',t=left(r['wm']) or '?'))
-    elif r['st']=='stale': note='— stale'
     elif r['extra']=='keychain-locked': note='— '+t('keychain_locked'); r['extra']=''
     else:      note='— '+(t('nologin') if r['st']=='nologin' else t('query_fail'))
     if g==0 and r['mp'] is not None and r['mp']>=100:
@@ -216,7 +215,7 @@ def render_row(r,hl):
     base,dim,is_rec=row_style(r)
     if LAYOUT=='two':
         l1=[(name_cell(r,is_rec),base),(note_of(r,False),note_col(r,base))]
-        if r['st']!='ok': return [finish(l1,hl)]          # 조회 못 한 계정은 수치 줄이 없다
+        if r['st'] not in ('ok','stale'): return [finish(l1,hl)]          # 조회 못 한 계정은 수치 줄이 없다
         l2=[(' '*8+WEEKLY+' ',base)]+usage_segs(r,base,dim,False)
         # 2줄째 마지막 칸이 잘리지 않게 세션 라벨을 끼운다
         l2=[l2[0],l2[1],l2[2],(' · '+SESSION+' ',base),l2[3],l2[4],(' · '+mlabel+' ',base),l2[5]]
@@ -374,7 +373,7 @@ def build_graph(hl_idx,terse=False,fold=False,tight=False):
             txt,gc=GHEAD[g]
             if len(seen)>1 and not tight: lines.append('')
             lines.append(C('  '+txt+'─'*max(0,min(COLS-1,78)-dw(txt)-2),gc))
-        elif not tight and (r['st']=='ok' or rows[k-1]['st']=='ok'): lines.append('')
+        elif not tight and (r['st'] in ('ok','stale') or rows[k-1]['st'] in ('ok','stale')): lines.append('')
         lines+=card(r, hl_idx is not None and k==hl_idx, fold and g>=2)
     lines.append('')
     rs=rec_summary()
@@ -393,7 +392,7 @@ def build_graph(hl_idx,terse=False,fold=False,tight=False):
 # ── 주간 리셋 타임라인 ────────────────────────────────────────────────────────
 # 계정끼리 "주간이 언제 풀리는지"를 한 축에서 비교한다: 지금부터 7일, 자정마다 요일 눈금, 계정별 ● 표시.
 def timeline_lines():
-    data=[r for r in rows if r['st']=='ok']
+    data=[r for r in rows if r['st'] in ('ok','stale')]
     if not data: return []
     now=_dt.datetime.now()
     TLW=max(21,min(63,COLS-1-(4+NAMEW+2+2+30)))

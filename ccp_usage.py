@@ -152,7 +152,10 @@ def parse(text, now=None):
     return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
 
 
-def fetch(profile_dir, timeout=8):
+STALE_AFTER = 1800   # 초. 이 넘게 묵은 스냅숏만 '낡음' 표시 — 주간 한도는 느리게 움직이므로 5분은 너무 공격적이었다(전부 낡음으로 떠서 추천·그래프에서 빠짐)
+
+
+def fetch(profile_dir, timeout=20):
     """claude -p /usage 를 돌려 원문을 돌려준다. 실패하면 ''."""
     env = dict(os.environ)
     for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
@@ -195,7 +198,7 @@ def probe(profile_dir, tries=2):
             break
         # Recent CLI builds can refresh this file without printing /usage.
         cached, age = native_cache(profile_dir)
-        if cached is not None and age <= 300:
+        if cached is not None and age <= STALE_AFTER:
             return "\t".join(cached)
     return line
 
@@ -245,7 +248,7 @@ def native_cache(profile_dir):
             return None, None
         if row[0] and not row[2]:
             row[2] = "0"   # 5시간 창이 아직 안 열렸으면 limits 에 session 슬롯 자체가 없다 — 0% (렌더러는 '새 창')
-        if age > 300:
+        if age > STALE_AFTER:
             row[6] = "stale"
             # 낡은 값일 때만 언제 것인지 적는다 — 신선하면 카드가 깨끗해야 한다(옛 /usage 파싱 때와 같은 모양).
             row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
@@ -270,6 +273,14 @@ def menu(profile_dir):
     if keychain_locked():
         return "\t".join([""] * 6 + ["fail"] + [""] * 4 + ["keychain-locked"])
     row, age = native_cache(profile_dir)
+    # 백그라운드 갱신(refresh)이 써 둔 캐시 파일이 Claude 의 스냅숏보다 새로우면 그쪽을 쓴다 —
+    # 갱신이 끝나도 스냅숏만 보면 영원히 낡은 값이 떠 있었다.
+    cached, cage = read_cache(profile_dir)
+    if cached is not None and cached[6] == "ok" and (row is None or (age is not None and cage < age)):
+        row, age = cached, cage
+        if age > STALE_AFTER:
+            row = list(row); row[6] = "stale"
+            row[11] = "cache " + datetime.datetime.fromtimestamp(time.time() - age).strftime("%m/%d %H:%M")
     if row is None or age > 60 or row[6] == "stale":
         start_refresh(profile_dir)
     if row is not None:

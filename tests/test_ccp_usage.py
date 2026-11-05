@@ -168,15 +168,18 @@ def test_expired_reset_is_stale_even_when_recent(monkeypatch, tmp_path):
     assert ccp_usage.native_cache(p)[0][6] == 'stale'
 
 
-def test_stale_renderer_keeps_usage_but_does_not_recommend(tmp_path):
+def test_stale_renderer_keeps_usage_and_shows_when_it_was_fetched(tmp_path):
+    # 낡은 값도 '쓸 수 있는 계정' 으로 그린다 — 주간 한도는 느리게 움직이고, 못 쓰는 계정으로 내려 보내면
+    # 남은 양이 안 보인다(2026-11-06 실제로 전부 '확인 불가' 로 떠서 보고됨). 언제 값인지만 메모로 붙인다.
     import subprocess
     from pathlib import Path
-    row = ['83', '120', '12', '30', 'Fable', '0', 'stale', '', '', '10080', '300', 'cache old']
+    row = ['83', '120', '12', '30', 'Fable', '0', 'stale', '', '', '10080', '300', 'cache 11/06 00:17']
     (tmp_path / '0').write_text('\t'.join(row))
     renderer = Path(ccp_usage.__file__).with_name('ccp_render.py')
     result = subprocess.run([sys.executable, str(renderer), str(tmp_path), '-', '', 'claude:test'], capture_output=True, text=True, check=True)
-    assert '83%' in result.stdout and 'stale' in result.stdout
-    assert 'rec\t0' not in (tmp_path / '_meta').read_text()
+    assert '83%' in result.stdout and 'cache 11/06 00:17' in result.stdout
+    assert '로그인 필요' not in result.stdout and '조회 실패' not in result.stdout
+    assert 'rec\t0' in (tmp_path / '_meta').read_text()        # 유일한 계정이면 추천도 된다
 
 
 # ── 키체인 잠김 가드 ────────────────────────────────────────────────────────
@@ -274,4 +277,20 @@ def test_신선한_스냅숏에는_cache_메모가_없고_낡으면_붙는다(mo
                                        "utilization": {"limits": [{"kind": "weekly_all", "percent": 5, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
         return ccp_usage.native_cache(str(tmp_path))[0]
     assert snap(10)[11] == "" and snap(10)[6] == "ok"
-    assert snap(600)[11].startswith("cache ") and snap(600)[6] == "stale"
+    assert snap(600)[11] == "" and snap(600)[6] == "ok"      # 10분은 아직 신선 — 주간 한도는 느리게 움직인다
+    assert snap(3600)[11].startswith("cache ") and snap(3600)[6] == "stale"
+
+
+def test_menu_는_갱신_캐시_파일이_스냅숏보다_새로우면_그쪽을_쓴다(monkeypatch, tmp_path):
+    import time, json as _j, os
+    monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setattr(ccp_usage, "keychain_locked", lambda: False)
+    monkeypatch.setattr(ccp_usage, "start_refresh", lambda d: None)
+    prof = tmp_path / "p"; prof.mkdir()
+    (prof / ".claude.json").write_text(_j.dumps({"oauthAccount": {"emailAddress": "x@example.com", "accountUuid": "a"},
+        "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int((time.time() - 3000) * 1000),
+                                   "utilization": {"limits": [{"kind": "weekly_all", "percent": 50, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
+    ccp_usage.write_cache(str(prof), "\t".join(["12", "100", "3", "50", "Fable", "7", "ok", "01/01 00:00", "01/01 00:00", "10080", "300", ""]))
+    f = fields(ccp_usage.menu(str(prof)))
+    assert f[0] == "12" and f[6] == "ok" and f[11] == ""      # 스냅숏(50%, 50분 전)이 아니라 방금 쓴 캐시(12%)
+
