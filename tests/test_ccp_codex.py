@@ -69,7 +69,7 @@ def test_크레딧_소진과_리셋권을_메모로_낸다():
                  rateLimitReachedType="workspace_owner_credits_depleted")
     payload["rateLimitResetCredits"]["availableCount"] = 3
     out = fields(ccp_codex.to_tsv({"planType": "team"}, payload, NOW))
-    assert out[11].startswith("team")
+    assert out[11].startswith("Team")
     assert "크레딧 소진" in out[11]
     assert "리셋권 3" in out[11]
 
@@ -77,7 +77,7 @@ def test_크레딧_소진과_리셋권을_메모로_낸다():
 def test_메모는_요금제부터_보여준다():
     """프로필 이름('기본')만으론 어느 워크스페이스인지 모른다."""
     out = fields(ccp_codex.to_tsv({"planType": "plus"}, rl(primary=win(30, 10080, 96)), NOW))
-    assert out[11] == "plus"
+    assert out[11] == "Plus"
 
 
 def test_무제한_크레딧이면_소진_경고를_달지_않는다():
@@ -102,3 +102,16 @@ def test_이미_지난_리셋은_0분():
 def test_필드는_항상_12개():
     for a, r in ((None, None), ({"planType": "team"}, rl(primary=win(1, 10080, 1)))):
         assert len(fields(ccp_codex.to_tsv(a, r, NOW))) == 12
+
+
+def test_워크스페이스_이름이_오면_메모에_요금제_앞에_붙인다():
+    out = fields(ccp_codex.to_tsv({"planType": "self_serve_business_prolite", "workspaceName": "BMC"},
+                                  rl(primary=win(14, 10080, 96)), NOW))
+    assert out[11].startswith("BMC · Team")
+
+
+def test_요금제_짧은_표기():
+    assert ccp_codex.plan_label("self_serve_business_prolite") == "Team"
+    assert ccp_codex.plan_label("pro") == "Pro"
+    assert ccp_codex.plan_label("something_new") == "something_new"
+    assert ccp_codex.plan_label(None) == ""

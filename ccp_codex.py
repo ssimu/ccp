@@ -36,6 +36,15 @@ def _slot(window):
     return (None if pct is None else int(round(pct)), mins, resets)
 
 
+PLAN_LABELS = {"self_serve_business_prolite": "Team", "self_serve_business": "Team", "team": "Team", "pro": "Pro",
+               "plus": "Plus", "enterprise": "Enterprise", "edu": "Edu", "free": "Free"}
+
+
+def plan_label(plan):
+    """요금제 내부 이름을 사람이 읽는 짧은 표기로. 모르는 값은 그대로."""
+    return PLAN_LABELS.get((plan or "").lower(), plan) if plan else ""
+
+
 def to_tsv(account, ratelimits, now=None):
     """account/read 와 account/rateLimits/read 응답을 TSV 한 줄로. 순수 함수 — 테스트 대상."""
     now = time.time() if now is None else now
@@ -67,7 +76,9 @@ def to_tsv(account, ratelimits, now=None):
 
     # 메모: 왜 막혔는지 / 되살릴 수단이 있는지. 없으면 빈 칸이어야 한다(카드가 지저분해진다).
     # 프로필 이름만으론 어느 워크스페이스인지 알 수 없다 — 요금제를 앞에 붙인다.
-    notes = [account.get("planType")] if account.get("planType") else []
+    # 최신 app-server 는 workspaceName 도 준다 — 있으면 요금제 앞에 붙인다(프로필 이름과 워크스페이스를 바로 대조할 수 있게).
+    label = " · ".join(x for x in (account.get("workspaceName"), plan_label(account.get("planType"))) if x)
+    notes = [label] if label else []
     credits = rl.get("credits") or {}
     if (rl.get("rateLimitReachedType") or "").endswith("credits_depleted") and not credits.get("unlimited"):
         notes.append(t("cx_credits"))
@@ -145,7 +156,8 @@ def who(codex_home):
     account, _ = _rpc(codex_home)
     if not account:
         return t("z_query_fail")
-    return f"{account.get('email') or '?'}  {account.get('planType') or ''}".rstrip()
+    label = " · ".join(x for x in (account.get("workspaceName"), plan_label(account.get("planType"))) if x)
+    return f"{account.get('email') or '?'}  {label}".rstrip()
 
 
 if __name__ == "__main__":

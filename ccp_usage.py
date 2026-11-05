@@ -247,7 +247,8 @@ def native_cache(profile_dir):
             row[2] = "0"   # 5시간 창이 아직 안 열렸으면 limits 에 session 슬롯 자체가 없다 — 0% (렌더러는 '새 창')
         if age > 300:
             row[6] = "stale"
-        row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
+            # 낡은 값일 때만 언제 것인지 적는다 — 신선하면 카드가 깨끗해야 한다(옛 /usage 파싱 때와 같은 모양).
+            row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
         return row, age
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return None, None

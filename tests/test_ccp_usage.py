@@ -121,7 +121,7 @@ def test_menu_uses_native_snapshot_without_starting_claude(monkeypatch, tmp_path
     monkeypatch.setattr(ccp_usage, 'fetch', lambda *a, **k: (_ for _ in ()).throw(AssertionError('must not block')))
     row = ccp_usage.menu(p).split('\t')
     assert (row[0], row[2], row[4], row[5], row[6]) == ('83', '12', 'Fable', '100', 'ok')
-    assert 'cache' in row[11]
+    assert row[11] == ''   # 신선한 스냅숏에는 메모가 없다 — stale 일 때만 'cache …'
 
 
 def test_snapshot_from_other_account_is_rejected(monkeypatch, tmp_path):
@@ -264,3 +264,14 @@ def test_세션_슬롯이_아예_없어도_주간이_있으면_세션은_0(monke
                                                           {"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}]}}}))
     row, age = ccp_usage.native_cache(str(tmp_path))
     assert row[0] == "2" and row[2] == "0" and row[3] == "" and row[6] == "ok"
+
+
+def test_신선한_스냅숏에는_cache_메모가_없고_낡으면_붙는다(monkeypatch, tmp_path):
+    import time, json as _j
+    def snap(age_s):
+        (tmp_path / ".claude.json").write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
+            "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int((time.time() - age_s) * 1000),
+                                       "utilization": {"limits": [{"kind": "weekly_all", "percent": 5, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
+        return ccp_usage.native_cache(str(tmp_path))[0]
+    assert snap(10)[11] == "" and snap(10)[6] == "ok"
+    assert snap(600)[11].startswith("cache ") and snap(600)[6] == "stale"
