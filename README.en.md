@@ -67,6 +67,10 @@ Bringing over is a copy (Claude Code's `--fork-session`): the original is untouc
 Turn the list off with `CCP_PICK_SESSION=0` in `~/.config/ccp/config.zsh`; `CCP_PICK_N=12` changes how many are shown.
 
 In the menu: `↑↓` (or `j` `k`) to move, a digit jumps to that number, `v` toggles graph and table, `q` leaves.
+
+The default view is a **comparison chart**: one line per account with weekly, session and Fable *remaining* drawn as equal-width bars so accounts line up, each followed by the % left and "in 3d14h · 11/9 Mon 15:00" (time until reset and when it frees). The `┃` inside a bar marks the time left in that window — a bar longer than `┃` means you are under pace. The 7-day timeline above puts every account's weekly reset on one axis. Narrow terminals shorten the bars and text, and very narrow ones fall back to the table.
+
+Running ccp on several Macs and dispatching work from one of them to the others: `docs/fleet.md` (Korean).
 You can also manage accounts right there: `a` adds one, `e` on the selected line renames it or changes its alias, `d` removes it. Answer a few prompts and you are back in the menu.
 
 The status line at the bottom of Claude Code always shows the current account and remaining quota.

@@ -205,11 +205,15 @@ def usage_segs(r,base,dim,with_bar):
     segs.append((pad(pctstr(leftpct(r['mp'])),6),hot(r['mp'],base,dim)))
     return segs
 
+import re as _re
+_ANSI=_re.compile('\033\\[[0-9;]*m')
+def vw(s): return dw(_ANSI.sub('',s))   # 표시 폭(이스케이프 제외) — 차트 막대는 색이 미리 입혀져 온다
 def finish(segs,hl):
     # 터미널 폭을 넘으면 마지막 칸(메모)을 자른다 — 줄바꿈되면 화살표 재그리기가 어긋난다.
     for k in range(len(segs)-1,-1,-1):
-        fixed=sum(dw(t) for t,_ in segs[:k])
-        if fixed+dw(segs[k][0])<=COLS-1: break
+        fixed=sum(vw(t) for t,_ in segs[:k])
+        if fixed+vw(segs[k][0])<=COLS-1: break
+        if '\033' in segs[k][0]: segs[k]=('',segs[k][1]); continue   # 색 입힌 칸은 자르지 않고 통째로 뺀다
         segs[k]=(cut(segs[k][0],max(0,COLS-1-fixed)),segs[k][1])
     if hl: return C(''.join(t for t,_ in segs),'7')       # 선택 행: 반전
     return ''.join(C(t,c) for t,c in segs)
@@ -274,18 +278,15 @@ def build_table(hl_idx):
     return lines
 
 
-# ── 그래프 보기(기본) ─────────────────────────────────────────────────────────
-# 계정마다 카드 하나: 주간/세션/모델을 긴 막대 세 줄로 쌓는다.
-# "언제 풀리는지"(리셋 시각·남은 시간)와 "얼마나 찼는지"(막대·색)를 한 줄에서 같이 읽게 하는 게 목적.
+# ── 그래프 보기(기본): 비교 차트 ─────────────────────────────────────────────
+# 계정마다 한 줄. 주간·세션·모델의 "남은 양"을 같은 폭의 긴 막대로 나란히 세워 계정끼리 바로 비교되게 한다.
+# 막대 옆에 남은 %와 "N시간 뒤 · 풀리는 시각"을 붙여 "얼마나 남았고 언제 다시 차는지"를 한 줄에서 읽는다.
 import datetime as _dt
 ROWS_H=shutil.get_terminal_size((160,40)).lines if tty else 10**6
 VIEWF=os.path.join(os.environ.get('CCP_CONFIG_DIR') or os.path.expanduser('~/.config/ccp'),'view')
 try: VIEW=open(VIEWF).read().strip() or 'graph'
 except Exception: VIEW='graph'
 if VIEW not in ('graph','table'): VIEW='graph'
-LABELS=[WEEKLY,SESSION,mlabel]
-LABW=max(dw(x) for x in LABELS)
-GBARW=max(10,min(24,COLS-(6+LABW+1+1+4+3+36)))
 
 def when(m,ts):
     # 리셋 시각을 말로: '오늘 23:59' / '내일 02:40' / '9/14(일) 14:59'
@@ -299,28 +300,28 @@ def when(m,ts):
     if delta==0: return t('today',t=tm)
     if delta==1: return t('tomorrow',t=tm)
     return t('when_date',mo=mo,da=da,wd=weekday(dd.weekday()),t=tm)
-def reset_desc(m,ts,pct,room=10**6):
-    if m is None: return t('rd_new') if pct==0 else '-'
-    if m<=0: return t('rd_soon')
-    for cand in (t('rd_full',when=when(m,ts),left=left(m)), t('rd_mid',when=when(m,ts),left=left(m)), t('rd_short',left=left(m))):
-        if dw(cand)<=room: return cand
-    return cut(cand,room)
-TICK,TICKC='┃','1;36'   # 경과 눈금: 굵은 세로선 + 밝은 청록(막대의 초록·노랑·빨강과 겹치지 않는 색)
-def elapsed_frac(m,window):
-    # 창 안에서 지금이 어디쯤인지(0=방금 시작, 1=리셋 직전). m=리셋까지 남은 분.
+
+TICK,TICKC='┃','1;36'   # 남은 시간 눈금: 굵은 세로선 + 밝은 청록(막대의 초록·노랑·빨강과 겹치지 않는 색)
+def left_frac(m,window):
+    # 창에서 남은 시간의 비율(1=방금 시작, 0=리셋 직전). 남은 양 막대와 같은 방향이라 길이를 바로 견준다.
     if m is None: return None
-    return max(0.0,min(1.0,1-m/window))
-def gbar(p,n,frac=None):
-    # 찬 만큼 색이 짙어진다: 70% 노랑, 90% 빨강, 100% 굵은 빨강
-    # t = 창의 경과 비율. 그 자리에 '│'를 겹쳐 "지금"을 표시한다 — 오른쪽 끝에 붙을수록 리셋 임박.
-    #   막대가 │에 못 미치면 페이스보다 덜 쓴 것(여유), │를 넘으면 페이스보다 많이 쓴 것.
-    if p is None: return C('·'*n,'2')
-    f=max(0,min(n,int(round(p/100*n))))
-    if p>0 and f==0: f=1
-    col='1;31' if p>=100 else '31' if p>=90 else '33' if p>=70 else '32'
+    return max(0.0,min(1.0,m/window))
+def remcol(rem):
+    # 남은 양 기준 색: 50%↑ 초록, 20~49 노랑, 1~19 빨강, 0 굵은 빨강
+    if rem is None: return '2'
+    if rem<=0: return '1;31'
+    if rem<20: return '31'
+    if rem<50: return '33'
+    return '32'
+def cbar(rem,n,frac=None,dim=False):
+    # 남은 양만큼 채운 막대. frac 자리에 ┃(남은 시간)를 겹친다 — 막대가 ┃보다 길면 페이스보다 여유, 짧으면 빠듯.
+    if rem is None: return C('·'*n,'2')
+    f=max(0,min(n,int(round(rem/100*n))))
+    if rem>0 and f==0: f=1
+    col='2' if dim else remcol(rem)
     cells=[('█',col)]*f+[('░','2')]*(n-f)
-    if frac is not None:
-        k=min(n-1,int(frac*n))
+    if frac is not None and not dim:
+        k=max(0,min(n-1,int(round(frac*n))-1))
         cells[k]=(TICK,TICKC)
     out=''; run=''; rc=None
     for ch,c in cells+[(None,None)]:
@@ -328,40 +329,93 @@ def gbar(p,n,frac=None):
         if ch is None: break
         run+=ch; rc=c
     return out
+def ruler(n):
+    # 막대 위 눈금: 0 … 50 … 100 (좁으면 0 … 100, 더 좁으면 0 만)
+    r=[' ']*n; r[0]='0'
+    if n>=14:
+        mid=n//2-1
+        for k,ch in enumerate('50'): r[mid+k]=ch
+    if n>=8:
+        for k,ch in enumerate('100'): r[n-3+k]=ch
+    return ''.join(r)
+def pbar(rem,n,frac=None):
+    # 색 없는 막대(선택 행은 통째로 반전되므로) — 눈금 ┃ 은 그대로 둔다
+    if rem is None: return '·'*n
+    b=list(bar(rem,n))
+    if frac is not None: b[max(0,min(n-1,int(round(frac*n))-1))]=TICK
+    return ''.join(b)
 
-def card(r,hl,fold=False):
+# 폭 계획: 이름 | 주간 막대 % 리셋 | 세션 막대 % 리셋 | 모델 막대 % | 메모.  넓을수록 막대와 리셋 설명이 길어진다.
+GAP=2
+def chart_plan():
+    for wb,sb,mb,rw1,rw2,note in ((20,12,12,31,20,14),(16,10,10,31,16,14),(14,8,8,14,12,14),(10,6,6,14,8,12),(8,5,5,12,6,8)):
+        need=LEAD+(wb+1+PCTW+1+rw1)+GAP+(sb+1+PCTW+1+rw2)+GAP+(mb+1+PCTW)+GAP+note
+        if need<=COLS-1: return dict(wb=wb,sb=sb,mb=mb,rw1=rw1,rw2=rw2)
+    return None
+PLAN=chart_plan()
+
+def rst_in(m,ts,pct,room):
+    # 리셋 칸: 넓으면 '3일14시간 뒤 · 11/9(월) 15:00', 좁으면 '3일14시간 뒤'. 칸에 맞는 첫 후보를 쓴다.
+    if m is None: cands=(t('new_window_full'),t('new_window_short'),t('new_window_tiny')) if pct==0 else ('-',)
+    elif m<=0: cands=(t('soon'),)
+    else: cands=(t('rst_in',t=left(m),w=when(m,ts)), t('rst_short',t=left(m)), left(m))
+    return next((c for c in cands if dw(c)<=room), cut(cands[-1],room))
+
+def chart_note(r):
+    # 차트의 메모는 짧게 — 수치는 막대가 이미 말한다. 추천 · 모델 한도가 먼저 막음 · 모델 소진 · 낡은 값 · 현재 계정만.
+    if r['grp']!=0: return note_of(r,True)
+    parts=[]
+    if r['is_rec']: parts.append(t('note_rec'))
+    if r['mp'] is not None and r['mp']>=100: parts.append(t('note_model_out',m=mlabel).strip(' ·()（）'))
+    elif r['flag']: parts.append(t('ch_binds',m=mlabel))
+    if r['extra']: parts.append(r['extra'])
+    if cur and r['name']==cur and r['tool']==cur_tool: parts.append(t('note_current').lstrip(' ·'))
+    return ' · '.join(p for p in parts if p)
+
+def chart_row(r,hl):
     base,dim,is_rec=row_style(r)
-    title=[(name_cell(r,is_rec).rstrip()+'  ',base),(note_of(r,False,True),note_col(r,base))]
-    out=[finish(title,hl)]
-    # fold = 막대를 접고 제목 줄만. 화면이 낮을 때 '못 쓰는 계정'부터 접는다 — 어차피 볼 게 없다.
-    if r['st'] not in ('ok', 'stale') or fold: return out
-    ind=' '*6
-    room=COLS-1-dw(ind+pad(LABELS[0],LABW)+' ')-GBARW-1-4-3
-    tw=elapsed_frac(r['wm'],r['ww']); ts_=elapsed_frac(r['sm'],r['sw'])
-    trip=[(LABELS[0],r['w'],tw,reset_desc(r['wm'],r['wt'],r['w'],room)),
-          (LABELS[1],r['s'],ts_,reset_desc(r['sm'],r['stt'],r['s'],room)),
-          (LABELS[2],r['mp'],tw,(t('rd_with_weekly')+(t('rd_binds_first') if r['flag'] else '')) if r['mp'] is not None else '-')]
-    if r['tool']!='claude':
-        # codex 는 모델별 한도가 없고, 요금제에 따라 5시간 창도 없다 — 없는 줄은 아예 안 그린다.
-        trip=[x for x in trip[:2] if x[1] is not None] or trip[:1]
-    for lab,pct,frac,desc in trip:
-        left_=ind+pad(lab,LABW)+' '
-        line=C(left_,base)+gbar(pct,GBARW,frac)+' '+C(pctstr(pct),hot(pct,base,dim))+'   '+C(cut(desc,max(0,room)),base if not dim else '2')
-        out.append(line)
+    P=PLAN
+    segs=[(name_cell(r,is_rec),base)]
+    if r['st'] not in ('ok','stale'):
+        segs.append((note_of(r,False),note_col(r,base)))
+        return finish(segs,hl)
+    codex=r['tool']!='claude'
+    # 주간
+    rem=leftpct(r['w'])
+    segs.append((cbar(rem,P['wb'],left_frac(r['wm'],r['ww']),dim)+' ','') if not hl else (pbar(rem,P['wb'],left_frac(r['wm'],r['ww']))+' ',''))
+    segs.append((pctstr(rem),hot(r['w'],base,dim)))
+    segs.append((' '+pad(rst_in(r['wm'],r['wt'],r['w'],P['rw1']),P['rw1'])+' '*GAP,base))
+    # 세션 (codex 는 요금제에 따라 없다) — 세션도 모델도 없는 codex 행은 빈 칸을 두지 않고 메모를 바로 붙인다
+    if codex and r['s'] is None:
+        segs.append((chart_note(r),note_col(r,base)))
+        return finish(segs,hl)
+    else:
+        rem=leftpct(r['s'])
+        segs.append((cbar(rem,P['sb'],left_frac(r['sm'],r['sw']),dim)+' ','') if not hl else (pbar(rem,P['sb'],left_frac(r['sm'],r['sw']))+' ',''))
+        segs.append((pctstr(rem),hot(r['s'],base,dim)))
+        segs.append((' '+pad(rst_in(r['sm'],r['stt'],r['s'],P['rw2']),P['rw2'])+' '*GAP,base))
+    # 모델(Fable) — 주간과 같이 리셋되므로 눈금은 주간 것
+    if codex or r['mp'] is None:
+        segs.append((' '*(P['mb']+1+PCTW+GAP),''))
+    else:
+        rem=leftpct(r['mp'])
+        segs.append((cbar(rem,P['mb'],None,dim)+' ','') if not hl else (pbar(rem,P['mb'])+' ',''))
+        segs.append((pctstr(rem)+' '*GAP,hot(r['mp'],base,dim)))
+    segs.append((chart_note(r),note_col(r,base)))
+    return finish(segs,hl)
+
+def chart_header():
+    P=PLAN
+    out=[C(cut(t('ch_legend1'),COLS-1),'2'), C(cut(t('ch_legend2',tick=TICK,m=mlabel),COLS-1),'2')]
+    if 'codex' in HASTOOL: out.append(C(cut(t('gr_legend_codex'),COLS-1),'2'))
+    w1=P['wb']+1+PCTW+1+P['rw1']+GAP; w2=P['sb']+1+PCTW+1+P['rw2']+GAP; w3=P['mb']+1+PCTW+GAP
+    lab=lambda x,w: pad(cut(x,w-1),w)   # 열 제목이 열보다 길면 자른다(좁은 화면)
+    out.append(C(' '*LEAD+lab(t('col_weekly_left')+t('col_reset_in'),w1)+lab(t('col_sess_left')+t('col_reset_in'),w2)+lab(t('col_model_left',m=mlabel),w3),'2'))
+    out.append(C(' '*LEAD+pad(ruler(P['wb']),w1)+pad(ruler(P['sb']),w2)+pad(ruler(P['mb']),w3),'2'))
     return out
 
-def build_graph(hl_idx,terse=False,fold=False,tight=False):
-    # terse/fold/tight = 화면이 낮을 때 순서대로 조여 카드 보기를 지켜내는 단계.
-    #   표로 떨어지는 것보다 압축된 카드가 낫다 — 막대를 보려고 그래프를 쓰는 것이므로.
-    leg=(t('gr_legend_wide',m=mlabel) if COLS>=100 else t('gr_legend_narrow',m=mlabel))
-    if terse:
-        lines=['',C(cut(t('gr_legend_terse',m=mlabel,tick=TICK),COLS-1),'2')]
-    else:
-        lines=['',C(cut(leg,COLS-1),'2'),
-               C(cut(t('gr_legend_rec',m=mlabel),COLS-1),'2'),
-               C(cut(t('gr_legend_tick',tick=TICK),COLS-1),'2')]
-        if 'codex' in HASTOOL:
-            lines.append(C(cut(t('gr_legend_codex'),COLS-1),'2'))
+def build_chart(hl_idx):
+    lines=['']+chart_header()
     global LEGN
     LEGN=len(lines)
     seen=set(); curtool=None
@@ -369,15 +423,14 @@ def build_graph(hl_idx,terse=False,fold=False,tight=False):
         g=r['grp']
         if len(HASTOOL)>1 and r['tool']!=curtool:
             curtool=r['tool']; seen=set()
-            if k and not tight: lines.append('')
+            if k: lines.append('')
             lines.append(C('  '+TOOLNAME.get(curtool,curtool),'1;36'))
         if g not in seen:
             seen.add(g)
             txt,gc=GHEAD[g]
-            if len(seen)>1 and not tight: lines.append('')
-            lines.append(C('  '+txt+'─'*max(0,min(COLS-1,78)-dw(txt)-2),gc))
-        elif not tight and (r['st'] in ('ok','stale') or rows[k-1]['st'] in ('ok','stale')): lines.append('')
-        lines+=card(r, hl_idx is not None and k==hl_idx, fold and g>=2)
+            if len(seen)>1: lines.append('')
+            lines.append(C('  '+txt+'─'*max(0,min(COLS-1,LINEW)-dw(txt)-2),gc))
+        lines.append(chart_row(r, hl_idx is not None and k==hl_idx))
     lines.append('')
     rs=rec_summary()
     if rs: lines.append(rs)
@@ -446,15 +499,14 @@ def with_timeline(lines):
 def build(hl_idx):
     global VIEW,FORCED
     FORCED=False
-    if VIEW=='graph':
-        # 넉넉한 순서대로: 타임라인 포함 → 범례 축약 → 못 쓰는 계정 접기 → 줄간격 제거 → 표.
-        g=build_graph(hl_idx)
+    if VIEW=='graph' and PLAN is not None:
+        # 차트는 계정당 한 줄이라 거의 늘 들어간다. 타임라인까지 들어가면 같이, 아니면 차트만.
+        g=build_chart(hl_idx)
         if len(with_timeline(g))+2<=ROWS_H: return with_timeline(g)
-        for kw in ({}, {'terse':True}, {'terse':True,'fold':True}, {'terse':True,'fold':True,'tight':True}):
-            g=build_graph(hl_idx,**kw) if kw else g
-            if len(g)+2<=ROWS_H: return g
-        # 여기까지 와도 안 들어가면 표로 떨어진다(재그리기가 화면 위로 넘치면 깨진다)
+        if len(g)+2<=ROWS_H: return g
         FORCED=True
+    elif VIEW=='graph':
+        FORCED=True            # 너무 좁은 터미널 — 차트 폭이 안 나와 표(두 줄 배치)로
     tbl=build_table(hl_idx)
     # 표는 범례 2행 뒤에 타임라인을 끼우고, 열 제목(3행째)은 타임라인 다음·계정 행 바로 앞에 둔다
     h=2
@@ -490,7 +542,7 @@ def target_line(k):
     r=rows[k]
     head=f'  ▶ {r["i"]}) {r["name"]}  '
     if NOTICE: return C(head,"1")+C(cut(NOTICE,COLS-1-dw(head)),'1;33')
-    other=t('key_forced') if FORCED else (t('key_table') if VIEW=='graph' else t('key_graph'))
+    other=(t('key_narrow') if PLAN is None else t('key_forced')) if FORCED else (t('key_table') if VIEW=='graph' else t('key_graph'))
     return C(head,"1")+C(cut(t('key_help',other=other),COLS-1-dw(head)),'2')
 def draw(k,first):
     lines=build(k)+[target_line(k)]

@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""fleet-jobs — 관문(old-mbp)에서 함대 Mac 에 Claude Code 작업을 투입하고 결과를 회수한다. Hermes 가 SSH 로 부른다.
+
+  fleet-jobs dispatch [--on M] [--profile P] [--cwd D] [--name N] (TASK | -)   # '-' 는 stdin 에서 작업문
+  fleet-jobs list [--all]            # 살아 있는 작업 (--all: 끝난 것도)
+  fleet-jobs status <id>
+  fleet-jobs wait <id> [--timeout S]  # 끝날 때까지(기본 150초) 기다렸다가 결과까지 출력
+  fleet-jobs result <id>             # 결과 파일(없으면 화면 꼬리)
+  fleet-jobs send <id> <message>     # 돌고 있는 에이전트에 지시 추가
+  fleet-jobs stop <id>
+  fleet-jobs unreported              # 끝났는데 아직 알리지 않은 작업을 출력하고 알림 처리 (cron 용, 없으면 무출력)
+  fleet-jobs clean [--age H]         # 알린 지 H시간(기본 6) 지난 작업의 터미널 정리
+  fleet-jobs machines
+
+M = local(이 Mac) 또는 `hc machine ls` 의 이름. 실행은 각 Mac 의 데스크톱 core 의 hc 터미널에서 ~/.local/bin/fleet-job-run 이 한다.
+작업 기록: ~/.local/share/fleet-jobs/<id>.json (이 Mac).  결과: 대상 Mac 의 ~/.local/share/fleet-jobs/<id>.result.md
+"""
+import json, os, subprocess, sys, time, datetime, argparse, shlex
+
+HOME = os.path.expanduser("~")
+HC = os.path.join(HOME, ".local/bin/hc")
+REG = os.path.join(HOME, ".local/share/fleet-jobs")
+CFG = os.path.join(HOME, ".config/ccp/fleet-dispatch.json")
+TERMINAL = {"done", "blocked", "error", "exited", "stopped", "lost"}
+
+
+def now():
+    return datetime.datetime.now().astimezone().replace(microsecond=0)
+
+
+def cfg():
+    try:
+        return json.load(open(CFG))
+    except Exception:
+        return {"default_cwd": "~/fleet-work", "machines": {}}
+
+
+class _Timeout:
+    returncode = 124; stdout = ""; stderr = '{"error":"hc call timed out"}'
+
+
+def hc(*args, timeout=60, check=False):
+    try:
+        p = subprocess.run([HC, *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        p = _Timeout()   # SSH 맥락에서 `hc wait` 가 --timeout 을 넘겨 안 돌아올 때가 있다 — 폴링으로 넘어간다
+    if check and p.returncode:
+        raise RuntimeError((p.stderr or p.stdout).strip())
+    return p
+
+
+def hc_json(*args, timeout=60):
+    p = hc(*args, "--json", timeout=timeout)
+    out = p.stdout.strip() or p.stderr.strip()
+    try:
+        return json.loads(out)
+    except Exception:
+        return {"error": out[-400:], "rc": p.returncode}
+
+
+def machines():
+    d = hc_json("machine", "ls")
+    return {m["name"]: m.get("state") for m in d.get("machines", [])}
+
+
+def on(machine):
+    return [] if machine == "local" else ["--on", machine]
+
+
+def remote_read(machine, path):
+    """대상 Mac 의 파일 내용. 없으면 None."""
+    if machine == "local":
+        p = os.path.expanduser(path)
+        return open(p, errors="replace").read() if os.path.exists(p) else None
+    p = hc("exec", "--on", machine, "sh", "-c", f"test -f {path} && cat {path} || echo __FLEET_NOFILE__", timeout=40)
+    out = p.stdout
+    if "__FLEET_NOFILE__" in out or p.returncode:
+        return None
+    return out
+
+
+def load(jid):
+    f = os.path.join(REG, jid + ".json")
+    if not os.path.exists(f):
+        sys.exit(f"없는 작업: {jid}")
+    return json.load(open(f))
+
+
+def save(j):
+    os.makedirs(REG, exist_ok=True)
+    json.dump(j, open(os.path.join(REG, j["id"] + ".json"), "w"), ensure_ascii=False, indent=1)
+
+
+def all_jobs():
+    os.makedirs(REG, exist_ok=True)
+    return [json.load(open(os.path.join(REG, f))) for f in sorted(os.listdir(REG)) if f.endswith(".json")]
+
+
+def phase(j, refresh=True):
+    """running | idle | done | blocked | error | exited | stopped | lost 와 hc 상태를 j 에 적어 돌려준다."""
+    if j.get("phase") in TERMINAL and not refresh:
+        return j["phase"]
+    if j.get("phase") in ("stopped",):
+        return "stopped"
+    g = hc_json("get", j["address"], timeout=30)
+    if "error" in g or not g.get("address"):
+        j["phase"] = "lost"; j["hc"] = g.get("error", "")[:200]; return "lost"
+    st = g.get("status") or {}
+    state = st.get("state") if isinstance(st, dict) else st
+    j["hc"] = {"state": g.get("state"), "status": state, "turn": g.get("turn"), "exit_code": g.get("exit_code")}
+    # 결과 파일이 있으면 끝난 것 — 그 뒤에 뜨는 홍보 대화상자(blocked)는 무시. 상태 보고가 없는 옛 claude(2.1.265 등)도 이걸로 잡는다.
+    res = remote_read(j["machine"], j["result"])
+    if g.get("state") == "finished":
+        j["phase"] = "exited"
+    elif res is not None:
+        j["result_text"] = res.strip(); j["phase"] = "done"
+    elif state == "blocked":
+        j["phase"] = "blocked"
+    elif state == "error":
+        j["phase"] = "error"
+    elif state in ("idle", "done"):
+        j["phase"] = "idle"
+    elif state is None and g.get("turn", 0) == 0:
+        # 아직 에이전트 상태 보고가 없다 — 첫 실행 대화상자에 잡혔는지 화면으로 본다. 아는 것은 자동으로 넘긴다.
+        tail = screen_tail(j, 14)
+        j["phase"] = "running"
+        if "Enter to confirm" in tail or "Enter to continue" in tail:
+            keys = auto_dialog_keys(tail)
+            if keys:
+                hc("keys", j["address"], *keys, timeout=30)
+                j.setdefault("auto_dialogs", []).append(keys[-1] + ":" + next((l.strip() for l in tail.splitlines() if l.strip()), "")[:60])
+                time.sleep(2)
+            else:
+                j["phase"] = "dialog"; j["dialog"] = tail
+    else:
+        j["phase"] = "running"
+    if j["phase"] in TERMINAL and not j.get("finished_at"):
+        j["finished_at"] = now().isoformat()
+    save(j)
+    return j["phase"]
+
+
+def auto_dialog_keys(tail):
+    """첫 실행 대화상자 중 답이 정해진 것: 누를 키 목록. 모르는 것은 None(사람에게)."""
+    if "Bypass Permissions mode" in tail and "Yes, I accept" in tail:
+        return ["down", "enter"]          # --dangerously-skip-permissions 는 ccp 설정(CCP_CLAUDE_ARGS)으로 이미 정한 것
+    if "trust this folder" in tail or "Yes, I trust" in tail:
+        return ["down", "enter"]
+    if "Choose the text style" in tail:
+        return ["enter"]
+    if "fullscreen renderer" in tail:
+        return ["esc"]
+    return None
+
+
+def screen_tail(j, lines=25):
+    p = hc("read", j["address"], "--lines", str(lines), timeout=30)
+    t = [l.rstrip() for l in p.stdout.splitlines() if l.strip() and not l.startswith("[hc]")]
+    return "\n".join(t[-lines:])
+
+
+def fmt(j, with_result=False):
+    ph = j.get("phase", "?")
+    label = {"running": "작업 중", "idle": "대기(결과 파일 없음)", "done": "완료", "blocked": "사람 필요(blocked)", "dialog": "대화상자에 멈춤(사람 필요)",
+             "error": "오류", "exited": "종료됨", "stopped": "중지함", "lost": "터미널 없음"}.get(ph, ph)
+    line = f"[{j['id']}] {j['machine']} · {j['profile']} · {label} · {j.get('name') or ''}".rstrip(" ·")
+    body = [line, f"  작업: {j['task'].strip().splitlines()[0][:120]}", f"  폴더: {j['cwd']} · 시작 {j['created_at'][11:16]}"]
+    if j.get("hc") and isinstance(j["hc"], dict) and j["hc"].get("exit_code") is not None:
+        body.append(f"  exit {j['hc']['exit_code']}")
+    if with_result:
+        if j.get("result_text"):
+            body.append("  결과:"); body += ["    " + l for l in j["result_text"].splitlines()[:30]]
+        elif ph == "dialog":
+            body.append("  화면:"); body += ["    " + l for l in j.get("dialog", "").splitlines()]
+            body.append(f"  → 사람이 처리: hc keys {j['address']} down enter  (또는 fleet-jobs stop {j['id']})")
+        elif ph != "running":
+            body.append("  화면 꼬리:"); body += ["    " + l for l in screen_tail(j, 12).splitlines()]
+    return "\n".join(body)
+
+
+def cmd_dispatch(a):
+    conf = cfg()
+    ms = machines()
+    m = a.on or "local"
+    if m != "local" and m not in ms:
+        sys.exit(f"없는 머신: {m} (가능: local, {', '.join(ms)})")
+    if m != "local" and ms[m] != "connected":
+        sys.exit(f"{m} 는 지금 {ms[m]} 상태라 투입할 수 없다")
+    mc = conf.get("machines", {}).get(m, {})
+    profile = a.profile or mc.get("profile") or "default"
+    cwd = a.cwd or mc.get("cwd") or conf.get("default_cwd", "~/fleet-work")
+    task = sys.stdin.read() if a.task == "-" else a.task
+    if not task.strip():
+        sys.exit("작업문이 비었다")
+    jid = now().strftime("j%y%m%d-%H%M%S")
+    name = a.name or jid
+    rdir = os.path.join(HOME, ".local/share/fleet-jobs")   # hc file/exec 는 '~' 를 풀지 않는다 — 절대 경로(네 Mac 모두 /Users/swh)
+    task_path = f"{rdir}/{jid}.task"
+    # 1) 폴더 준비 + 작업문 전달
+    if m == "local":
+        os.makedirs(rdir, exist_ok=True); os.makedirs(os.path.expanduser(cwd), exist_ok=True)
+        open(task_path, "w").write(task)
+    else:
+        hc("exec", "--on", m, "sh", "-c", f"mkdir -p {rdir} {shlex.quote(os.path.expanduser(cwd))}", timeout=40, check=True)
+        p = subprocess.run([HC, "file", "write", "--on", m, task_path], input=task, capture_output=True, text=True, timeout=60)
+        if p.returncode:
+            sys.exit("작업문 전달 실패: " + (p.stderr or p.stdout).strip())
+    # 2) hc 터미널에서 fleet-job-run 실행 (ccp → claude, 데스크톱 core 라 키체인 열림)
+    # --cwd 는 '~' 를 풀지 않는다. 원격은 홈 기준 상대 경로, 로컬은 절대 경로로 넘긴다.
+    # --cwd 는 '~' 를 풀지 않는다(네 Mac 모두 홈이 /Users/swh 라 여기서 푼다). 명령은 argv 로 나눠 넘긴다 —
+    # 한 문자열로 주면 --no-parent 와 함께일 때 셸 줄로 안 읽히고 프로그램 이름으로 취급돼 spawn_failed 가 난다.
+    cwd_arg = os.path.expanduser(cwd)
+    r = hc_json("run", *on(m), "--bg", "--no-notify", "--no-parent", "--cwd", cwd_arg, "--name", f"fj-{jid[1:]}",
+                "zsh", "-lic", f"~/.local/bin/fleet-job-run {jid} {shlex.quote(profile)}", timeout=60)
+    if not r.get("address"):
+        sys.exit("hc run 실패: " + json.dumps(r, ensure_ascii=False)[:300])
+    j = {"id": jid, "name": name, "machine": m, "profile": profile, "cwd": cwd, "task": task, "address": r["address"],
+         "result": f"{rdir}/{jid}.result.md", "created_at": now().isoformat(), "phase": "running", "reported": False}
+    save(j)
+    if a.json:
+        print(json.dumps(j, ensure_ascii=False))
+    else:
+        print(f"투입함 [{jid}] {m} · {profile} · {cwd} · 터미널 {r['address']}")
+        print("  진행: fleet-jobs wait " + jid + "   결과: fleet-jobs result " + jid)
+
+
+def cmd_list(a):
+    js = all_jobs()
+    if not a.all:
+        js = [j for j in js if j.get("phase") not in TERMINAL or not j.get("reported")]
+    for j in js:
+        if j.get("phase") not in TERMINAL:
+            phase(j)
+    if a.json:
+        print(json.dumps(js, ensure_ascii=False)); return
+    if not js:
+        print("진행 중인 함대 작업 없음"); return
+    for j in js:
+        print(fmt(j))
+
+
+def cmd_status(a):
+    j = load(a.id); phase(j)
+    print(json.dumps(j, ensure_ascii=False) if a.json else fmt(j, with_result=True))
+
+
+def cmd_wait(a):
+    j = load(a.id)
+    deadline = time.time() + a.timeout
+    idle_seen = 0
+    dialog_seen = 0
+    while True:
+        ph = phase(j)
+        if ph in TERMINAL:
+            break
+        if ph == "idle":
+            idle_seen += 1
+            if idle_seen >= 3:
+                break
+        if ph == "dialog":
+            dialog_seen += 1
+            if dialog_seen >= 2:
+                break          # 사람이 눌러 줘야 한다 — 기다리지 않고 알린다
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        step = int(min(remaining, 30)) or 1
+        p = hc("wait", j["address"], "--timeout", str(step), timeout=step + 10)
+        if p.returncode == 124:
+            time.sleep(min(step, 10))
+    phase(j)
+    if j.get("phase") in TERMINAL:
+        j["reported"] = True; save(j)
+    print(json.dumps(j, ensure_ascii=False) if a.json else fmt(j, with_result=True))
+    if j.get("phase") not in TERMINAL:
+        print("  (아직 끝나지 않음 — 나중에 fleet-jobs wait 를 다시 부르거나 완료 알림을 기다린다)")
+
+
+def cmd_result(a):
+    j = load(a.id); phase(j)
+    if j.get("result_text"):
+        print(j["result_text"])
+    else:
+        print(f"(결과 파일 없음 · 상태 {j.get('phase')})"); print(screen_tail(j, 20))
+
+
+def cmd_send(a):
+    j = load(a.id)
+    if "Enter to confirm" in screen_tail(j, 12):
+        hc("keys", j["address"], "esc", timeout=30); time.sleep(1)   # 끝난 뒤 뜬 홍보 대화상자를 닫고 보낸다
+    p = hc("send", j["address"], a.message, timeout=60)
+    j["phase"] = "running"; j["reported"] = False; j.pop("result_text", None); save(j)
+    print((p.stdout or p.stderr).strip() or "보냄")
+
+
+def cmd_stop(a):
+    j = load(a.id)
+    hc("kill", j["address"], timeout=30); hc("rm", j["address"], timeout=30)
+    j["phase"] = "stopped"; j["reported"] = True; j["finished_at"] = now().isoformat(); save(j)
+    print(f"중지함 [{j['id']}]")
+
+
+def cmd_unreported(a):
+    out = []
+    for j in all_jobs():
+        if j.get("reported"):
+            continue
+        if phase(j) in TERMINAL:
+            out.append(fmt(j, with_result=True)); j["reported"] = True; save(j)
+    if out:
+        print("함대 작업 완료\n" + "\n\n".join(out))
+
+
+def cmd_clean(a):
+    """알림까지 끝난 작업의 터미널을 치운다(기본: 끝난 지 6시간 넘은 것). 기록 JSON 은 남긴다."""
+    n = 0
+    for j in all_jobs():
+        if j.get("phase") in TERMINAL and j.get("reported") and not j.get("cleaned"):
+            fin = j.get("finished_at")
+            age_h = (now() - datetime.datetime.fromisoformat(fin)).total_seconds() / 3600 if fin else 99
+            if age_h >= a.age:
+                hc("kill", j["address"], timeout=30); hc("rm", j["address"], timeout=30)
+                j["cleaned"] = True; save(j); n += 1
+    if n and not a.quiet:
+        print(f"터미널 {n}개 정리")
+
+
+def cmd_machines(a):
+    conf = cfg(); ms = machines()
+    rows = [{"machine": "local", "state": "connected", **conf.get("machines", {}).get("local", {})}]
+    rows += [{"machine": n, "state": s, **conf.get("machines", {}).get(n, {})} for n, s in ms.items()]
+    if a.json:
+        print(json.dumps(rows, ensure_ascii=False)); return
+    for r in rows:
+        print(f"{r['machine']:8} {r['state']:12} 기본 프로필 {r.get('profile','default'):12} {r.get('label','')}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="fleet-jobs", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sp = ap.add_subparsers(dest="cmd")
+    d = sp.add_parser("dispatch"); d.add_argument("--on"); d.add_argument("--profile"); d.add_argument("--cwd"); d.add_argument("--name"); d.add_argument("--json", action="store_true"); d.add_argument("task"); d.set_defaults(f=cmd_dispatch)
+    l = sp.add_parser("list"); l.add_argument("--all", action="store_true"); l.add_argument("--json", action="store_true"); l.set_defaults(f=cmd_list)
+    s = sp.add_parser("status"); s.add_argument("id"); s.add_argument("--json", action="store_true"); s.set_defaults(f=cmd_status)
+    w = sp.add_parser("wait"); w.add_argument("id"); w.add_argument("--timeout", type=int, default=150); w.add_argument("--json", action="store_true"); w.set_defaults(f=cmd_wait)
+    r = sp.add_parser("result"); r.add_argument("id"); r.set_defaults(f=cmd_result)
+    se = sp.add_parser("send"); se.add_argument("id"); se.add_argument("message"); se.set_defaults(f=cmd_send)
+    st = sp.add_parser("stop"); st.add_argument("id"); st.set_defaults(f=cmd_stop)
+    u = sp.add_parser("unreported"); u.set_defaults(f=cmd_unreported)
+    c = sp.add_parser("clean"); c.add_argument("--age", type=float, default=6); c.add_argument("--quiet", action="store_true"); c.set_defaults(f=cmd_clean)
+    m = sp.add_parser("machines"); m.add_argument("--json", action="store_true"); m.set_defaults(f=cmd_machines)
+    a = ap.parse_args()
+    if not a.cmd:
+        ap.print_help(); return
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

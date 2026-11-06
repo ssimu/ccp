@@ -1,0 +1,27 @@
+#!/bin/sh
+# ccp-relogin <프로필> [--dry-run]
+# ~/.config/ccp/fleet.json 에서 이 Mac(hostname) 의 <프로필> 에 매핑된 이메일·조직 ID 를 찾아
+# `ccp-recover login <프로필> --email … --org-id … --manual-browser` 를 실행한다. 비밀은 화면에 찍지 않는다.
+# 데스크톱 세션(또는 데스크톱에서 띄운 herdr-core 의 hc 터미널)에서 돌릴 것 — 키체인이 잠겨 있으면 ccp-recover 가 거부한다.
+set -eu
+P="${1:?usage: ccp-relogin <profile> [--dry-run]}"; DRY="${2:-}"
+F="$HOME/.config/ccp/fleet.json"; [ -f "$F" ] || { echo "no $F" >&2; exit 2; }
+eval "$(/usr/bin/python3 - "$F" "$P" <<'PY'
+import json, socket, sys, shlex
+f, p = sys.argv[1], sys.argv[2]
+def err(m): print("ERR=" + shlex.quote(m)); sys.exit()
+d = json.load(open(f)); me = socket.gethostname().lower().split('.')[0]
+host = next((h for h in d["hosts"] if h["hostname"].lower().split('.')[0] == me), None)
+if not host: err(f"fleet.json: this host ({me}) is not listed")
+if p in d.get("excluded_profiles", []): err(f"{p}: in excluded_profiles — do not touch")
+key = host["profiles"].get(p)
+if not key: err(f"{p}: not mapped for host {host['id']}")
+a = d["accounts"][key]
+if not a.get("org_id"): err(f"{p}: account {key} has no org_id yet (state: {a.get('state', '?')}) — confirm the mailbox and organization first")
+print("EMAIL=%s; ORG=%s; HOSTID=%s" % (shlex.quote(a["email"]), shlex.quote(a["org_id"]), shlex.quote(host["id"])))
+PY
+)"
+[ -n "${ERR:-}" ] && { echo "ccp-relogin: $ERR" >&2; exit 3; }
+echo "host=$HOSTID profile=$P account=$(printf '%s' "$EMAIL" | sed -E 's/^(..).*@/\1…@/')"
+[ "$DRY" = "--dry-run" ] && { echo "(dry-run) ccp-recover login $P --email … --org-id … --manual-browser"; exit 0; }
+exec "$HOME/.local/bin/ccp-recover" login "$P" --email "$EMAIL" --org-id "$ORG" --manual-browser

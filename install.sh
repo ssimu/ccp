@@ -9,6 +9,7 @@
 #   1. ~/.zshrc 에 ccp.zsh 를 source 하는 한 줄 (clone 한 위치를 그대로 쓴다)
 #   2. ~/.config/ccp/{profiles.tsv,config.zsh,statusline.conf} 를 예시에서 복사 (이미 있으면 그대로 둠)
 #   2b. ~/.local/bin/ccp-recover — 로그인 점검·복구 보조 명령 (docs/recovery.md)
+#   3b. ~/.local/bin/fleet-* · ccp-fleet-status · ccp-relogin — 여러 Mac 운용 명령 링크 (docs/fleet.md)
 #   3. profiles.tsv 대로 프로필 디렉터리 생성 (ccp-sync)
 #   4. ~/.claude/statusline-command.sh 링크 + settings.json 의 statusLine 설정 (--no-statusline 이면 건너뜀)
 #      codex 가 있으면 ~/.codex/config.toml 의 [tui].status_line 에 모델·한도 항목도 넣는다(있으면 그대로)
@@ -80,6 +81,16 @@ else
     chmod +x "$BIN/ccp-recover"; ok "ccp-recover → $DIR/ccp_recovery.py"
     case ":$PATH:" in *":$BIN:"*) ;; *) note "$BIN 이 PATH 에 없다. ~/.zshrc 에 export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
 fi
+
+step "3b/5  함대 명령 (fleet/ → $BIN, docs/fleet.md)"
+for x in fleet-job-run fleet-jobs fleet-dispatch ccp-fleet-status ccp-relogin fleet-report; do
+    dst="$BIN/$x"
+    if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DIR/fleet/$x" ]; then continue; fi
+    [ -e "$dst" ] && [ ! -L "$dst" ] && mv "$dst" "$dst.bak-$(date +%Y%m%d%H%M%S)"
+    rm -f "$dst"; ln -s "$DIR/fleet/$x" "$dst"
+done
+ok "fleet-job-run · fleet-jobs · fleet-dispatch · ccp-fleet-status · ccp-relogin · fleet-report → $DIR/fleet/"
+if [ ! -f "$CFG/fleet-dispatch.json" ]; then cp "$DIR/fleet/fleet-dispatch.example.json" "$CFG/fleet-dispatch.json"; ok "fleet-dispatch.json 생성 (예시 복사 — 관문에서만 쓰인다)"; fi
 
 step "4/5  프로필 디렉터리"
 if command -v zsh >/dev/null 2>&1; then

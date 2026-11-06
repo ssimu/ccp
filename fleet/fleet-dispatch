@@ -1,0 +1,3 @@
+#!/bin/zsh
+# fleet-dispatch … = fleet-jobs dispatch … (관문 Mac 에서. docs/fleet.md)
+exec "$HOME/.local/bin/fleet-jobs" dispatch "$@"

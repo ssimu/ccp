@@ -1,0 +1,34 @@
+#!/bin/zsh
+# fleet-report — SSH 로 들어온 맥락(키체인 잠김)에서도 안전하게 함대 상태를 JSON 으로 낸다.
+# 실제 조회는 이 Mac 의 데스크톱 core 의 hc 터미널에서 돌리고(키체인 열림) 결과만 읽어 돌려준다.
+# 출력: {"generated_at":…, "hosts":[…], "usage":{"claude":[…], "codex":[…]}}
+set -u
+HC=$HOME/.local/bin/hc
+R=$($HC run --bg --no-notify --name "fleet-report-$(date +%H%M%S)" "zsh -lc 'ccp-fleet-status --json > /tmp/fleet-status.json; cd ~/projects/ccp && python3 - > /tmp/fleet-usage.json <<\"PY\"
+import json, os, glob, subprocess, sys
+sys.path.insert(0, \".\")
+import ccp_usage, ccp_codex
+out = {\"claude\": [], \"codex\": []}
+dirs = [(\"default\", \"\")] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.expanduser(\"~/.claude-profiles/*\"))) if os.path.isdir(d) and not os.path.basename(d).startswith(\".\")]
+for name, d in dirs:
+    ccp_usage.refresh(d)            # 보고용이라 기다린다(프로필당 수 초) — 낡은 스냅숏 대신 지금 값
+    f = ccp_usage.menu(d).split(\"\\t\")
+    out[\"claude\"].append({\"profile\": name, \"weekly_pct\": f[0], \"weekly_reset\": f[7], \"session_pct\": f[2], \"session_reset\": f[8], \"model\": f[4], \"model_pct\": f[5], \"state\": f[6], \"note\": f[11]})
+cdirs = [(\"default\", os.path.expanduser(\"~/.codex\"))] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.expanduser(\"~/.codex-profiles/*\"))) if os.path.isdir(d)]
+for name, d in cdirs:
+    f = ccp_codex.probe(d).split(\"\\t\")
+    out[\"codex\"].append({\"profile\": name, \"weekly_pct\": f[0], \"weekly_reset\": f[7], \"state\": f[6], \"note\": f[11]})
+json.dump(out, sys.stdout, ensure_ascii=False)
+PY
+'" 2>&1)
+A=$(print -r -- "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("address",""))' 2>/dev/null)
+[[ -z "$A" ]] && { echo "{\"error\":\"hc run failed\"}"; exit 1; }
+$HC wait "$A" --timeout 300 >/dev/null 2>&1; $HC rm "$A" >/dev/null 2>&1
+python3 - <<'PY'
+import json, datetime
+try: hosts = json.load(open("/tmp/fleet-status.json"))
+except Exception as e: hosts = {"error": str(e)}
+try: usage = json.load(open("/tmp/fleet-usage.json"))
+except Exception as e: usage = {"error": str(e)}
+print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": "old-mbp", "hosts": hosts, "usage": usage}, ensure_ascii=False))
+PY

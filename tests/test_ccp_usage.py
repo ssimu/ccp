@@ -177,7 +177,7 @@ def test_stale_renderer_keeps_usage_and_shows_when_it_was_fetched(tmp_path):
     (tmp_path / '0').write_text('\t'.join(row))
     renderer = Path(ccp_usage.__file__).with_name('ccp_render.py')
     result = subprocess.run([sys.executable, str(renderer), str(tmp_path), '-', '', 'claude:test'], capture_output=True, text=True, check=True)
-    assert '83%' in result.stdout and 'cache 11/06 00:17' in result.stdout
+    assert '17%' in result.stdout and 'cache 11/06 00:17' in result.stdout   # 화면은 남은 양(100-83) 기준
     assert '로그인 필요' not in result.stdout and '조회 실패' not in result.stdout
     assert 'rec\t0' in (tmp_path / '_meta').read_text()        # 유일한 계정이면 추천도 된다
 

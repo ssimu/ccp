@@ -1,0 +1,9 @@
+{
+  "default_cwd": "~/fleet-work",
+  "machines": {
+    "local":   {"profile": "team",     "label": "old-mbp (관문, Intel)"},
+    "macmini": {"profile": "amc-team", "label": "Mac mini"},
+    "wooui":   {"profile": "amc-team", "label": "Woo MacBook Pro"},
+    "mbp2":    {"profile": "amc-team", "label": "Woo MacBook Pro (2), 지휘소"}
+  }
+}

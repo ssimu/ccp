@@ -1,0 +1,32 @@
+#!/bin/zsh
+# ccp-fleet-status [--json]
+# 네 Mac(local + hc machine 들)의 ccp-recover status 를 모아 보인다. 원격은 반드시 hc 터미널(데스크톱 세션에서 띄운 core)에서
+# 돌린다 — SSH 나 `hc exec` 는 키체인이 잠겨 있어 keychain_locked 만 나온다. 비밀값은 출력하지 않는다.
+set -u
+JSON=0; [[ "${1:-}" == --json ]] && JSON=1
+OUT_DIR=$(mktemp -d); trap 'rm -rf "$OUT_DIR"' EXIT
+summarize() { python3 -I - "$1" "$2" <<'PY'
+import json,sys
+host, t = sys.argv[1], open(sys.argv[2], errors="replace").read()
+i, j = t.find("["), t.rfind("]")
+try: rows = json.loads(t[i:j+1])
+except Exception: rows = [{"profile": "?", "state": "check_failed", "note": "unparseable output"}]
+print(json.dumps({"host": host, "profiles": [{k: r.get(k) for k in ("profile", "state", "orgName", "subscriptionType") if k in r} for r in rows]}, ensure_ascii=False))
+PY
+}
+# local
+"$HOME/.local/bin/ccp-recover" status > "$OUT_DIR/local.txt" 2>/dev/null
+summarize local "$OUT_DIR/local.txt" > "$OUT_DIR/local.json"
+# remotes = hc machine ls
+for m in $(hc machine ls --json 2>/dev/null | python3 -I -c 'import json,sys; [print(x["name"]) for x in json.load(sys.stdin)["machines"]]'); do
+  R=$(hc run --on "$m" --bg --no-notify --name "fleet-status" "zsh -lc '~/.local/bin/ccp-recover status'" 2>&1)
+  A=$(print -r -- "$R" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("address",""))' 2>/dev/null)
+  if [[ -z "$A" ]]; then print -r -- "{\"host\": \"$m\", \"profiles\": [], \"error\": \"hc run failed\"}" > "$OUT_DIR/$m.json"; continue; fi
+  hc wait "$A" --timeout 120 >/dev/null 2>&1
+  hc read "$A" --lines 120 > "$OUT_DIR/$m.txt" 2>/dev/null; hc rm "$A" >/dev/null 2>&1
+  summarize "$m" "$OUT_DIR/$m.txt" > "$OUT_DIR/$m.json"
+done
+if (( JSON )); then python3 -I -c 'import json,sys,glob; print(json.dumps([json.load(open(f)) for f in sorted(glob.glob(sys.argv[1]+"/*.json"))], ensure_ascii=False, indent=1))' "$OUT_DIR"
+else
+  for f in "$OUT_DIR"/*.json; do python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("== "+d["host"]+(" ("+d["error"]+")" if d.get("error") else "")); [print("  %-13s %s" % (p["profile"], p["state"])) for p in d["profiles"]]' "$f"; done
+fi
