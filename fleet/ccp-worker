@@ -1,0 +1,41 @@
+#!/bin/zsh
+# ccp-worker <profile> — hc 템플릿(worker·reviewer)용 실행기. 지금 폴더($PWD)에서 <profile> 의 Claude Code 를
+# 대화형으로 띄운다. 작업문은 hc 가 첫 메시지로 넣는다(hc run <template> "<task>").
+#   - 허용 폴더(~/fleet-work, ~/projects, 또는 CCP_WORKER_ALLOWED 에 콜론으로) 밖이면 거부한다 — 권한 확인 없이 도는 에이전트다.
+#   - 첫 메시지가 대화상자에 막히지 않도록 신뢰·권한 수락·온보딩을 프로필 .claude.json 에 미리 적는다(fleet-job-run 과 같은 방식).
+#   - 키체인이 잠긴 셸이면 ccp 가 거부한다 — 원격 Mac 은 GUI 도메인에서 띄운 core 의 hc 터미널에서 돌 것.
+set -u
+profile="${1:?usage: ccp-worker <profile>}"
+cwd="${PWD:A}"
+allowed=("${(@s/:/)${CCP_WORKER_ALLOWED:-$HOME/fleet-work:$HOME/projects}}")
+ok=0
+for a in $allowed; do
+  a="${a:A}"
+  [[ "$cwd" == "$a" || "$cwd" == "$a"/* ]] && ok=1
+done
+(( ok )) || { echo "ccp-worker: $cwd 는 허용 폴더(${(j:, :)allowed}) 밖이다 — 거부" >&2; exit 2; }
+
+cfg="$HOME/.claude.json"; [[ "$profile" != default ]] && cfg="$HOME/.claude-profiles/$profile/.claude.json"
+[[ "$profile" == default || -d "${cfg:h}" ]] || { echo "ccp-worker: 프로필 없음: $profile" >&2; exit 2; }
+python3 - "$cfg" "$cwd" <<'PY'
+import json, os, sys
+f, cwd = sys.argv[1], sys.argv[2]
+try: d = json.load(open(f))
+except Exception: d = {}
+before = json.dumps(d, sort_keys=True)
+p = d.setdefault("projects", {})
+for k in {cwd, os.path.realpath(cwd)}:
+    p.setdefault(k, {})["hasTrustDialogAccepted"] = True
+d["bypassPermissionsModeAccepted"] = True
+if not d.get("hasCompletedOnboarding"):
+    d["hasCompletedOnboarding"] = True
+    d.setdefault("theme", "dark")
+    d.setdefault("lastOnboardingVersion", "2.1.0")
+# 이미 다 적혀 있으면 쓰지 않는다 — 같은 프로필의 claude 가 돌고 있을 때 파일을 덮어쓰는 일을 줄인다.
+if json.dumps(d, sort_keys=True) != before:
+    tmp = f + ".ccp-worker.tmp"
+    json.dump(d, open(tmp, "w"), indent=2)
+    os.replace(tmp, f)
+PY
+sel="$profile"; [[ "$profile" == default ]] && sel=0
+exec zsh -lic 'CCP_PICK_SESSION=0 ccp "$1"' _ "$sel"

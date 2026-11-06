@@ -83,13 +83,13 @@ else
 fi
 
 step "3b/5  함대 명령 (fleet/ → $BIN, docs/fleet.md)"
-for x in fleet-job-run fleet-jobs fleet-dispatch ccp-fleet-status ccp-relogin fleet-report; do
+for x in fleet-job-run fleet-jobs fleet-dispatch ccp-fleet-status ccp-relogin fleet-report ccp-worker; do
     dst="$BIN/$x"
     if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DIR/fleet/$x" ]; then continue; fi
     [ -e "$dst" ] && [ ! -L "$dst" ] && mv "$dst" "$dst.bak-$(date +%Y%m%d%H%M%S)"
     rm -f "$dst"; ln -s "$DIR/fleet/$x" "$dst"
 done
-ok "fleet-job-run · fleet-jobs · fleet-dispatch · ccp-fleet-status · ccp-relogin · fleet-report → $DIR/fleet/"
+ok "fleet-job-run · fleet-jobs · fleet-dispatch · ccp-fleet-status · ccp-relogin · fleet-report · ccp-worker → $DIR/fleet/"
 if [ ! -f "$CFG/fleet-dispatch.json" ]; then cp "$DIR/fleet/fleet-dispatch.example.json" "$CFG/fleet-dispatch.json"; ok "fleet-dispatch.json 생성 (예시 복사 — 관문에서만 쓰인다)"; fi
 
 step "4/5  프로필 디렉터리"

@@ -13,6 +13,7 @@ Telegram ──► Hermes(서버) ──ssh/Tailscale──► 관문 Mac: fleet
 | 파일 | 어디에 | 하는 일 |
 |---|---|---|
 | `fleet-job-run` | **모든 Mac** `~/.local/bin` | 작업 하나를 이 Mac 에서 돌린다: 신뢰·온보딩 대화상자를 프로필 `.claude.json` 에 미리 적고 `ccp <프로필> --dangerously-skip-permissions "<작업문>"` |
+| `ccp-worker` | **모든 Mac** `~/.local/bin` | hc 템플릿용 실행기: 지금 폴더에서 `ccp <프로필>` 을 대화형으로 띄운다. 허용 폴더(`~/fleet-work`, `~/projects`, `CCP_WORKER_ALLOWED`) 밖이면 거부, 신뢰·온보딩 대화상자는 미리 적는다. 작업문은 hc 가 첫 메시지로 넣는다 — 예: 템플릿 `command: ccp-worker dranswer` 후 `hc run --on <m> --bg --cwd ~/projects/x worker "<작업>"` |
 | `fleet-jobs` | 관문 | 투입(`dispatch`)·목록·`wait`·`result`·`send`·`stop`·`unreported`(끝난 작업 알림용)·`clean`·`machines` |
 | `fleet-dispatch` | 관문 | `fleet-jobs dispatch` 의 짧은 이름 |
 | `fleet-dispatch.example.json` | → `~/.config/ccp/fleet-dispatch.json` | 머신별 기본 프로필·작업 폴더 |
