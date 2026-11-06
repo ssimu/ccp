@@ -26,6 +26,13 @@ def profile_dir(name):
     return root / name
 
 
+def profile_names():
+    """default + 프로필 폴더들. 잠금(*.lock)·숨김 폴더는 프로필이 아니다."""
+    root = Path(os.environ.get("CLAUDE_PROFILES", str(Path.home() / ".claude-profiles")))
+    return ["default"] + sorted(p.name for p in root.glob("*")
+                                if p.is_dir() and not p.name.startswith(".") and not p.name.endswith(".lock"))
+
+
 def profile_env(name):
     env = dict(os.environ)
     # An inherited token/API provider can silently select a different account.
@@ -121,8 +128,7 @@ def main():
     try:
         if args.command == "login":
             return login(args)
-        root = Path(os.environ.get("CLAUDE_PROFILES", str(Path.home() / ".claude-profiles")))
-        names = [args.profile] if args.profile else ["default"] + sorted(p.name for p in root.glob("*") if p.is_dir())
+        names = [args.profile] if args.profile else profile_names()
         results = [inspect(name) for name in names]
         print(json.dumps(results, ensure_ascii=False, indent=2))
         return 0 if all(r["state"] == "local_oauth_present" for r in results) else 1

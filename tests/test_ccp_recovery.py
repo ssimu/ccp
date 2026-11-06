@@ -58,3 +58,10 @@ def test_keychain_locked_context_never_runs_claude(monkeypatch):
         raise AssertionError("claude must not run while the keychain is locked")
     result = recovery.inspect("default", runner)
     assert result == dict(profile="default", state="keychain_locked")
+
+
+def test_status_skips_lock_and_hidden_dirs(monkeypatch, tmp_path):
+    for name in ("team", "team.lock", ".tmp"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setenv("CLAUDE_PROFILES", str(tmp_path))
+    assert recovery.profile_names() == ["default", "team"]
