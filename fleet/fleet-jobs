@@ -189,6 +189,11 @@ def cmd_dispatch(a):
     mc = conf.get("machines", {}).get(m, {})
     profile = a.profile or mc.get("profile") or "default"
     cwd = a.cwd or mc.get("cwd") or conf.get("default_cwd", "~/fleet-work")
+    # 허용 폴더 밖으로는 투입하지 않는다 — 투입된 작업은 권한 확인 없이 돌기 때문에 범위를 폴더로 묶는다.
+    allowed = [os.path.expanduser(x) for x in conf.get("allowed_cwd", ["~/fleet-work", "~/projects"])]
+    cwd_abs = os.path.normpath(os.path.expanduser(cwd))
+    if not any(cwd_abs == p or cwd_abs.startswith(p.rstrip("/") + "/") for p in allowed):
+        sys.exit(f"허용 폴더 밖: {cwd} (허용: {', '.join(conf.get('allowed_cwd', ['~/fleet-work', '~/projects']))} — ~/.config/ccp/fleet-dispatch.json 의 allowed_cwd)")
     task = sys.stdin.read() if a.task == "-" else a.task
     if not task.strip():
         sys.exit("작업문이 비었다")

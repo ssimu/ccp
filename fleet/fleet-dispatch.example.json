@@ -1,5 +1,6 @@
 {
   "default_cwd": "~/fleet-work",
+  "allowed_cwd": ["~/fleet-work", "~/projects"],
   "machines": {
     "local":   {"profile": "team",     "label": "old-mbp (관문, Intel)"},
     "macmini": {"profile": "amc-team", "label": "Mac mini"},
