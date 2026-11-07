@@ -7,7 +7,7 @@ try:
     out = subprocess.run(["bash", os.path.expanduser("~/.hermes/scripts/fleet_report.sh")], capture_output=True, text=True, timeout=420).stdout
     d = json.loads(out)
 except Exception as e:
-    print("⚠️ 함대 관문(old-mbp) 접속 실패: " + type(e).__name__); sys.exit(0)
+    print("⚠️ 함대 관문(FLEET_GATEWAY, 2026-11-08 부터 macmini) 접속 실패: " + type(e).__name__); sys.exit(0)
 alerts = []
 for h in d.get("hosts", []):
     if isinstance(h, dict) and h.get("profiles") is not None:

@@ -30,5 +30,5 @@ try: hosts = json.load(open("/tmp/fleet-status.json"))
 except Exception as e: hosts = {"error": str(e)}
 try: usage = json.load(open("/tmp/fleet-usage.json"))
 except Exception as e: usage = {"error": str(e)}
-print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": "old-mbp", "hosts": hosts, "usage": usage}, ensure_ascii=False))
+print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": __import__("socket").gethostname().split(".")[0], "hosts": hosts, "usage": usage}, ensure_ascii=False))
 PY
