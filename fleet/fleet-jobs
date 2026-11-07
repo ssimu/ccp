@@ -265,12 +265,12 @@ def cmd_ask(a):
         sys.exit(f"없는 터미널: {addr}")
     body = text if text.startswith("질문") else "질문: " + text
     j = next((x for x in all_jobs() if x.get("kind") == "ask" and x.get("address") == addr and x.get("phase") == "question"), None)
-    if j:      # 같은 터미널에 열린 질문이 있으면 새로 만들지 않고 고쳐서 다시 알린다
-        j.update(result_text=body, task=text, reported=False); save(j)
-        print(f"질문 고침 [{j['id']}] {addr}"); return
-    jid = now().strftime("j%y%m%d-%H%M%S")
     st = g.get("status") or {}
     busy = (st.get("state") if isinstance(st, dict) else st) == "working"
+    if j:      # 같은 터미널에 열린 질문이 있으면 새로 만들지 않고 고쳐서 다시 알린다(일하는 중이면 다시 쉴 때까지 자동 닫힘 보류)
+        j.update(result_text=body, task=text, reported=False, armed=not busy); save(j)
+        print(f"질문 고침 [{j['id']}] {addr}"); return
+    jid = now().strftime("j%y%m%d-%H%M%S")
     j = {"id": jid, "kind": "ask", "armed": not busy, "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
          "machine": m, "profile": "대화형", "cwd": (g.get("foreground") or {}).get("cwd") or g.get("cwd") or "", "task": text,
          "address": addr, "result": "", "result_text": body, "created_at": now().isoformat(), "phase": "question", "reported": False}
