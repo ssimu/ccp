@@ -546,6 +546,9 @@ def main():
     pj = sp.add_parser("projects"); pj.add_argument("--json", action="store_true"); pj.set_defaults(f=cmd_projects)
     m = sp.add_parser("machines"); m.add_argument("--json", action="store_true"); m.set_defaults(f=cmd_machines)
     a = ap.parse_args()
+    moved = cfg().get("moved_to")
+    if moved:   # 옛 관문 — 여기서 투입하면 작업판이 둘로 갈라진다(2026-11-08 old-mbp → macmini)
+        sys.exit(f"관문이 {moved} 로 옮겨졌다 — 그쪽 fleet-jobs 를 쓴다 (이 Mac 의 기록은 ~/.local/share/fleet-jobs 에 남아 있다)")
     if not a.cmd:
         ap.print_help(); return
     a.f(a)

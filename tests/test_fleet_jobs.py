@@ -239,3 +239,11 @@ def test_gateway_self_alias_maps_to_local():
     assert fj.resolve(conf, {}, on="macmini", project=None, profile=None, cwd=None, agent=None)["machine"] == "local"
     assert fj.resolve(conf, projs, on=None, project="demo", profile=None, cwd=None, agent=None)["machine"] == "local"
     assert fj.resolve(conf, {}, on="wooui", project=None, profile=None, cwd=None, agent=None)["machine"] == "wooui"
+
+
+def test_moved_gateway_refuses(monkeypatch, capsys):
+    monkeypatch.setattr(fj, "cfg", lambda: {"moved_to": "macmini"})
+    monkeypatch.setattr(fj.sys, "argv", ["fleet-jobs", "list"])
+    with pytest.raises(SystemExit) as e:
+        fj.main()
+    assert "macmini" in str(e.value)
