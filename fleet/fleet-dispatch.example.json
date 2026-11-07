@@ -1,10 +1,14 @@
 {
   "default_cwd": "~/fleet-work",
   "allowed_cwd": ["~/fleet-work", "~/projects"],
+  "profile": "auto",
+  "codex_profile": "auto",
+  "exclude_profiles": ["imok"],
+  "max_weekly_pct": 80,
   "machines": {
-    "local":   {"profile": "team",     "label": "old-mbp (관문, Intel)"},
-    "macmini": {"profile": "amc-team", "label": "Mac mini"},
-    "wooui":   {"profile": "amc-team", "label": "Woo MacBook Pro"},
-    "mbp2":    {"profile": "amc-team", "label": "Woo MacBook Pro (2), 지휘소"}
+    "local":   {"fallback_profile": "team",     "label": "old-mbp (관문, Intel)"},
+    "macmini": {"fallback_profile": "amc-team", "label": "Mac mini"},
+    "wooui":   {"fallback_profile": "amc-team", "label": "Woo MacBook Pro"},
+    "mbp2":    {"fallback_profile": "amc-team", "label": "Woo MacBook Pro (2), 지휘소"}
   }
 }

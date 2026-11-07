@@ -62,11 +62,46 @@ def resolve(conf, projs, on, project, profile, cwd, agent):
     m = on or pj.get("machine") or "local"
     mc = conf.get("machines", {}).get(m, {})
     return {"machine": m,
-            "profile": profile or pj.get("profile") or mc.get("profile") or "default",
+            "profile": profile or pj.get("profile") or mc.get("profile") or conf.get("profile") or "default",
             "cwd": cwd or pj.get("cwd") or mc.get("cwd") or conf.get("default_cwd", "~/fleet-work"),
             "agent": agent,
-            "codex_profile": pj.get("codex_profile") or mc.get("codex_profile") or "default",
+            "codex_profile": pj.get("codex_profile") or mc.get("codex_profile") or conf.get("codex_profile") or "default",
             "project": project or None}
+
+
+def settle(r0, conf, pick):
+    """'auto' 인 계정을 그 Mac 의 사용량으로 정한다. pick(machine, agent) -> {"profile", "weekly"} 또는 None.
+    고를 게 없으면(전부 한도 근처·조회 실패) 머신의 fallback_profile → default. 명시한 계정은 건드리지 않는다."""
+    r = dict(r0)
+    key = "profile" if r["agent"] == "claude" else "codex_profile"
+    if r[key] != "auto":
+        return r
+    try:
+        got = pick(r["machine"], r["agent"])
+    except Exception:
+        got = None
+    if got and got.get("profile"):
+        r[key] = got["profile"]; r["picked"] = f"자동 · 주간 {got.get('weekly')}%"
+    else:
+        mc = conf.get("machines", {}).get(r["machine"], {})
+        fb = (mc.get("fallback_profile") if key == "profile" else mc.get("fallback_codex_profile")) or "default"
+        r[key] = fb; r["picked"] = f"자동 실패 → 대체 {fb}"
+    return r
+
+
+def pick_remote(conf):
+    """대상 Mac 에서 fleet-pick 을 돌린다(hc 경로, 키체인 열림)."""
+    excl = ",".join(conf.get("exclude_profiles", ["imok"]))
+    mx = str(conf.get("max_weekly_pct", 80))
+    def pick(machine, agent):
+        cmd = f"~/.local/bin/fleet-pick {agent} --exclude {shlex.quote(excl)} --max {mx}"
+        if machine == "local":
+            p = subprocess.run(["zsh", "-lc", cmd], capture_output=True, text=True, timeout=60)
+        else:
+            p = hc("exec", "--on", machine, "zsh", "-lc", cmd, timeout=60)
+        line = next((l for l in reversed(p.stdout.splitlines()) if l.startswith("{")), "")
+        return json.loads(line) if line else None
+    return pick
 
 
 def classify(hc_state, status, turn, result_text):
@@ -217,6 +252,8 @@ def fmt(j, with_result=False):
              "error": "오류", "exited": "종료됨", "stopped": "중지함", "lost": "터미널 없음"}.get(ph, ph)
     who = j['profile'] if j.get('agent', 'claude') == 'claude' else f"codex:{j.get('codex_profile', 'default')}"
     proj = f"{j['project']} · " if j.get('project') else ""
+    if j.get("picked"):
+        who += f"({j['picked']})"
     line = f"[{j['id']}] {proj}{j['machine']} · {who} · {label} · {j.get('name') or ''}".rstrip(" ·")
     body = [line, f"  작업: {j['task'].strip().splitlines()[0][:120]}", f"  폴더: {j['cwd']} · 시작 {j['created_at'][11:16]}"]
     if j.get("hc") and isinstance(j["hc"], dict) and j["hc"].get("exit_code") is not None:
@@ -244,6 +281,7 @@ def cmd_dispatch(a):
         sys.exit(f"없는 머신: {m} (가능: local, {', '.join(ms)})")
     if m != "local" and ms[m] != "connected":
         sys.exit(f"{m} 는 지금 {ms[m]} 상태라 투입할 수 없다")
+    r0 = settle(r0, conf, pick_remote(conf))
     profile, cwd, agent, cxp = r0["profile"], r0["cwd"], r0["agent"], r0["codex_profile"]
     # 허용 폴더 밖으로는 투입하지 않는다 — 투입된 작업은 권한 확인 없이 돌기 때문에 범위를 폴더로 묶는다.
     allowed = [os.path.expanduser(x) for x in conf.get("allowed_cwd", ["~/fleet-work", "~/projects"])]
@@ -276,14 +314,15 @@ def cmd_dispatch(a):
     if not r.get("address"):
         sys.exit("hc run 실패: " + json.dumps(r, ensure_ascii=False)[:300])
     j = {"id": jid, "name": name, "project": r0["project"], "agent": agent, "codex_profile": cxp,
-         "machine": m, "profile": profile, "cwd": cwd, "task": task, "address": r["address"],
+         "machine": m, "profile": profile, "picked": r0.get("picked"), "cwd": cwd, "task": task, "address": r["address"],
          "result": f"{rdir}/{jid}.result.md", "created_at": now().isoformat(), "phase": "running", "reported": False}
     save(j)
     if a.json:
         print(json.dumps(j, ensure_ascii=False))
     else:
         who = profile if agent == "claude" else f"codex:{cxp}"
-        print(f"투입함 [{jid}] {(r0['project'] + ' · ') if r0['project'] else ''}{m} · {who} · {cwd} · 터미널 {r['address']}")
+        how = f" ({r0['picked']})" if r0.get("picked") else ""
+        print(f"투입함 [{jid}] {(r0['project'] + ' · ') if r0['project'] else ''}{m} · {who}{how} · {cwd} · 터미널 {r['address']}")
         print("  진행: fleet-jobs wait " + jid + "   결과: fleet-jobs result " + jid)
 
 

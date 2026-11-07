@@ -92,3 +92,36 @@ def test_gone_terminal_without_result_is_lost(tmp_path, monkeypatch):
     monkeypatch.setattr(fj, "hc_json", lambda *a, **k: {"error": {"code": "not_found"}, "rc": 1})
     monkeypatch.setattr(fj, "remote_read", lambda m, p: None)
     assert fj.phase(j) == "lost" and "not_found" in j["hc"]
+
+
+def test_auto_profile_uses_pick():
+    r0 = {"machine": "macmini", "profile": "auto", "agent": "claude", "codex_profile": "auto", "cwd": "~", "project": None}
+    conf = {"machines": {"macmini": {"profile": "auto", "fallback_profile": "amc-team"}}}
+    seen = []
+    def pick(m, agent):
+        seen.append((m, agent)); return {"profile": "ra00203", "weekly": "39"}
+    r = fj.settle(r0, conf, pick)
+    assert r["profile"] == "ra00203" and r["picked"] == "자동 · 주간 39%" and seen == [("macmini", "claude")]
+    assert r["codex_profile"] == "auto"   # claude 작업이면 codex 쪽은 고르지 않는다
+
+
+def test_auto_falls_back_when_nothing_fits():
+    r0 = {"machine": "macmini", "profile": "auto", "agent": "claude", "codex_profile": "default", "cwd": "~", "project": None}
+    conf = {"machines": {"macmini": {"fallback_profile": "amc-team"}}}
+    r = fj.settle(r0, conf, lambda m, a: None)
+    assert r["profile"] == "amc-team" and "대체" in r["picked"]
+
+
+def test_codex_auto_and_explicit_untouched():
+    r0 = {"machine": "wooui", "profile": "amc-team", "agent": "codex", "codex_profile": "auto", "cwd": "~", "project": None}
+    r = fj.settle(r0, {}, lambda m, a: {"profile": "bmc2", "weekly": "0"})
+    assert r["codex_profile"] == "bmc2" and r["profile"] == "amc-team"
+    r0 = dict(r0, codex_profile="personal")
+    r = fj.settle(r0, {}, lambda m, a: 1 / 0)
+    assert r["codex_profile"] == "personal" and r.get("picked") is None
+
+
+def test_resolve_reads_top_level_auto_defaults():
+    conf = {"profile": "auto", "codex_profile": "auto", "machines": {}}
+    r = fj.resolve(conf, {}, on="wooui", project=None, profile=None, cwd=None, agent="codex")
+    assert r["profile"] == "auto" and r["codex_profile"] == "auto"

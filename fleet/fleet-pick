@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""fleet-pick claude|codex [--exclude a,b] [--max 80] — 이 Mac 에서 주간 사용량이 가장 낮은 계정(프로필)을 고른다.
+
+fleet-jobs 가 --profile auto 로 투입할 때 대상 Mac 의 hc 경로로 부른다(키체인이 열린 데스크톱 core).
+한도는 계정마다이고 프로필 이름은 Mac 마다 다르므로, 그 Mac 에서 그 Mac 의 프로필을 본다.
+  claude: ccp_usage.menu (저장된 스냅숏 — 기다리지 않는다. 낡았으면 뒤에서 갱신을 건다)
+  codex:  ccp_codex.probe (app-server 로 지금 값)
+출력: JSON {"agent", "profile"(없으면 null), "weekly", "candidates":[{profile, weekly, session, state, skip}]}
+"""
+import argparse
+import glob
+import json
+import os
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+SESSION_FULL = 95   # 5시간 창이 이만큼 찼으면 주간이 남아도 곧 막힌다
+
+
+def _int(s):
+    try:
+        return int(str(s).strip().rstrip("%"))
+    except (TypeError, ValueError):
+        return None
+
+
+def choose(rows, exclude, max_pct):
+    """후보 줄들에서 고른다. 순수 함수 — 테스트 대상. (고른 줄 또는 None, 이유를 붙인 줄들)"""
+    out, ok = [], []
+    for r in rows:
+        r = dict(r)
+        w, s = _int(r.get("weekly")), _int(r.get("session"))
+        if r["profile"] in exclude:
+            r["skip"] = "제외"
+        elif r.get("state") not in ("ok", "stale"):
+            r["skip"] = f"상태 {r.get('state') or '?'}"
+        elif w is None:
+            r["skip"] = "사용량 모름"
+        elif w > max_pct:
+            r["skip"] = f"주간 {w}% > {max_pct}%"
+        elif s is not None and s >= SESSION_FULL:
+            r["skip"] = f"5시간 창 {s}%"
+        else:
+            r["skip"] = ""
+            ok.append(r)
+        out.append(r)
+    ok.sort(key=lambda r: (_int(r["weekly"]), r.get("state") != "ok", r["profile"]))
+    return (ok[0] if ok else None), out
+
+
+def claude_rows():
+    sys.path.insert(0, REPO)
+    import ccp_usage
+    root = os.environ.get("CLAUDE_PROFILES", os.path.expanduser("~/.claude-profiles"))
+    dirs = [("default", "")] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.join(root, "*")))
+                                if os.path.isdir(d) and not os.path.basename(d).startswith(".") and not d.endswith(".lock")]
+    for name, d in dirs:
+        f = ccp_usage.menu(d).split("\t")
+        yield {"profile": name, "weekly": f[0], "session": f[2], "state": f[6]}
+
+
+def codex_rows():
+    sys.path.insert(0, REPO)
+    import ccp_codex
+    dirs = [("default", os.path.expanduser("~/.codex"))] + \
+        [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.expanduser("~/.codex-profiles/*"))) if os.path.isdir(d)]
+    for name, d in dirs:
+        f = ccp_codex.probe(d).split("\t")
+        yield {"profile": name, "weekly": f[0], "session": f[2], "state": f[6]}
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="fleet-pick")
+    ap.add_argument("agent", choices=["claude", "codex"])
+    ap.add_argument("--exclude", default="imok")
+    ap.add_argument("--max", type=int, default=80)
+    a = ap.parse_args()
+    rows = list(claude_rows() if a.agent == "claude" else codex_rows())
+    best, rows = choose(rows, [x for x in a.exclude.split(",") if x], a.max)
+    print(json.dumps({"agent": a.agent, "profile": best and best["profile"], "weekly": best and best["weekly"],
+                      "candidates": rows}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
