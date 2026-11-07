@@ -1,7 +1,7 @@
 ---
 name: fleet-dispatch
 description: "집 Mac 함대(관문 old-mbp)에 Claude Code 코딩 작업을 투입하고 결과를 회수한다. Telegram 에서 '맥미니에서 ~ 해줘', '함대에 작업', '작업 결과' 류 요청에 쓴다."
-version: 1.0.0
+version: 1.1.0
 author: ccp (ssimu/ccp fleet/hermes)
 license: MIT
 platforms: [linux]
@@ -26,7 +26,20 @@ $FLEET list                                         # 진행 중인 작업
 $FLEET status <id>   /   $FLEET result <id>         # 상태 / 결과 본문
 $FLEET send <id> "<추가 지시>"                       # 같은 에이전트에게 이어서 시킨다
 $FLEET stop <id>
+$FLEET projects                                     # 프로젝트 등록부 — 이름으로 투입하면 기계·폴더가 채워진다
+$FLEET dispatch --project <이름> "<작업문>"           # 예: --project fleet-demo
+$FLEET dispatch --project <이름> --agent codex "[리뷰] git diff 를 읽고 깨지는 입력·빠진 테스트를 찾아라. 고치지 말고 목록만."
+$FLEET list --project <이름>
 ```
+
+## 결정 필요(질문) — 승인 카드
+
+작업자가 막히면 결과를 '질문:' 으로 쓰고 멈춘다. 상태가 **결정 필요(질문)** 로 보이고 5분 완료 알림에도 그렇게 온다.
+- 읽기·테스트·리뷰·허용 폴더 안 편집·작업 브랜치 커밋·리뷰 지적 1회 반영처럼 **규칙으로 답할 수 있는 것은 직접 답한다**: `$FLEET send <id> "<답>"`.
+- push·병합·배포·발송·삭제·비밀값·결제·허용 폴더 밖·설정 파일·판단이 엇갈림은 **사용자에게 묻는다.** 질문 한 줄 + 고를 답 + 추천을 같이 보낸다.
+- 사용자가 "j… 승인", "j… 반려 <이유>" 또는 자유 답을 하면 `$FLEET send <id> "<그 답>"` 으로 옮기고 다시 wait.
+- codex 작업(`codex:` 로 표시)은 끝나면 나가서 send 가 안 된다 — 답을 붙여 새 작업으로 투입한다.
+규칙의 정본은 사용자 마스터 폴더의 POLICY.md 다. 여기 요지와 다르면 그쪽이 맞다.
 
 작업문은 **사람에게 말하듯 자연어로** 쓴다(Claude Code 에이전트가 읽는다). 셸 명령 한 줄을 작업문으로 넣지 않는다 — 예: "fleet-work 폴더에 bye.txt 를 만들고 안에 bye 한 단어만 적어라. 다른 일은 하지 마라."
 작업문이 길면 stdin 으로: `printf '%s' "$TASK" | $FLEET dispatch --on macmini -`

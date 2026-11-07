@@ -37,7 +37,15 @@ fleet-dispatch --on macmini --name fix-x --cwd '~/projects/x' "테스트가 깨�
 fleet-jobs wait j261106-093752 --timeout 150     # 끝나면 결과 요약까지. 아니면 '아직 끝나지 않음'
 fleet-jobs send j261106-093752 "그 수정에 테스트도 추가해"
 fleet-jobs list · status <id> · result <id> · stop <id> · clean
+fleet-jobs projects                                         # ~/.config/ccp/fleet-projects.json (예시: fleet/fleet-projects.example.json)
+fleet-dispatch --project demo "…"                           # 등록부가 기계·폴더·프로필을 채운다(명시한 인자가 이긴다)
+fleet-dispatch --project demo --agent codex "[리뷰] git diff 를 읽고 문제만 적어라"   # Codex 작업자, [리뷰] 는 읽기 전용
 ```
+
+- **Codex 작업자**: `codex exec -o <결과파일>` 로 돈다. 마지막 답이 결과가 되고, 끝나면 프로세스가 나간다(그래서 `send` 는 안 된다).
+  CODEX_HOME 은 등록부의 `codex_profile`(기본 `~/.codex`). brew 판 codex 를 먼저 쓴다 — 옛 단독 실행 파일은 셸 도구가 없다.
+- **결정 필요**: 결과 파일이 `질문:` 으로 시작하면 상태가 `question`. `send` 로 답하면 지난 결과는 `<id>.result.md.prev` 로 치워진다.
+- 사람에게 올릴 것과 스스로 답할 것의 구분은 각자 운영 규칙에 둔다(저장소에는 넣지 않는다).
 
 - 작업 폴더는 `allowed_cwd`(기본 `~/fleet-work`, `~/projects`) 안이어야 한다 — 투입된 작업은 권한 확인 없이 돌기 때문이다. 커밋·push·발송은 작업문이 명시할 때만.
 - 작업문 끝에 "결과 요약을 결과 파일에 써라" 지시가 자동으로 붙는다. 그 파일이 생기면 완료로 본다(상태 보고가 없는 옛 claude 도 잡힌다).
