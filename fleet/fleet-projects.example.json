@@ -1,0 +1,13 @@
+{
+  "_note": "관문 ~/.config/ccp/fleet-projects.json 으로 복사해 쓴다. fleet-jobs dispatch --project <이름> 이 기계·폴더·프로필 기본값을 여기서 채운다. cwd 는 allowed_cwd 안이어야 한다.",
+  "projects": {
+    "demo": {
+      "label": "예시 프로젝트",
+      "machine": "macmini",
+      "cwd": "~/projects/demo",
+      "profile": "default",
+      "codex_profile": "default",
+      "verify": "pytest -q"
+    }
+  }
+}

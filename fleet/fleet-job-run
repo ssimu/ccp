@@ -1,13 +1,25 @@
 #!/bin/zsh
-# fleet-job-run <id> <profile> — 함대 작업 하나를 이 Mac 에서 돌린다. 관문(old-mbp)의 fleet-dispatch 가 hc 터미널에서 부른다.
+# fleet-job-run <id> <profile> [claude|codex] [codex_profile] — 함대 작업 하나를 이 Mac 에서 돌린다. 관문(old-mbp)의 fleet-dispatch 가 hc 터미널에서 부른다.
 #   작업문은 ~/.local/share/fleet-jobs/<id>.task, 결과는 같은 폴더의 <id>.result.md (에이전트가 쓴다).
 #   claude 의 '이 폴더를 신뢰합니까' 대화상자를 프로필 .claude.json 에 미리 적어 막고, ccp 로 그 프로필의 Claude Code 를 띄운다.
+#   codex: CODEX_HOME=~/.codex(default) 또는 ~/.codex-profiles/<p>, `codex exec -o <결과>` — 마지막 답이 결과 파일이 된다.
+#          작업문 첫 줄이 [리뷰] 로 시작하면 read-only 샌드박스(깨 보기·리뷰), 아니면 workspace-write.
 set -u
-id="$1"; profile="$2"
+id="$1"; profile="$2"; agent="${3:-claude}"; cxp="${4:-default}"
 J="$HOME/.local/share/fleet-jobs"; mkdir -p "$J"
 task="$J/$id.task"; result="$J/$id.result.md"
 [[ -f "$task" ]] || { echo "no task file: $task" >&2; exit 2; }
 cwd="$PWD"
+if [[ "$agent" == codex ]]; then
+  rm -f "$result"
+  ch="$HOME/.codex"; [[ "$cxp" != default ]] && ch="$HOME/.codex-profiles/$cxp"
+  mode=workspace-write; [[ "$(head -1 "$task")" == "[리뷰]"* ]] && mode=read-only
+  prompt="$(cat "$task")
+
+---
+[함대 작업 $id] 너의 마지막 답이 그대로 결과 보고가 된다. 마지막 답에 결과 요약(무엇을 했고 무엇이 남았는지, 10줄 이내)을 써라. 질문이 생기거나 막히면 마지막 답을 '질문:' 으로 시작해 묻고 멈춰라. 이 폴더 밖은 건드리지 마라. 커밋·push·발송은 작업문이 명시할 때만 한다."
+  exec zsh -lic 'CODEX_HOME="$1" codex exec --skip-git-repo-check -C "$2" -s "$3" -o "$4" "$5"' _ "$ch" "$cwd" "$mode" "$result" "$prompt"
+fi
 cfg="$HOME/.claude.json"; [[ "$profile" != default ]] && cfg="$HOME/.claude-profiles/$profile/.claude.json"
 python3 - "$cfg" "$cwd" <<'PY'
 import json, os, sys
