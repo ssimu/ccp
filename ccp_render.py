@@ -106,7 +106,8 @@ def clock(ts,m):
 def rst(m,ts,pct):
     # 리셋 칸: '3일14시간 뒤 · 11/9(월) 15:00' — 남은 시간과 풀리는 시각을 같이 둬야 Claude 화면과 바로 대조된다.
     if m is None:
-        return t('new_window_full') if pct==0 else '-'      # 세션 창이 아직 안 열렸으면 리셋 시각도 없다
+        if pct==0: return t('new_window_full')               # API 가 0% 라고 준 것 — 세션 창이 아직 안 열렸으면 리셋 시각도 없다
+        return t('sess_unreported_short') if pct is None else '-'   # API 가 세션 항목을 아예 안 줌(2026-11-07) — 0% 로 꾸미지 않는다
     if m<=0: return t('soon')
     if not SHOWCLOCK: return left(m)
     return t('rst_in',t=left(m),w=when(m,ts))
@@ -356,7 +357,7 @@ PLAN=chart_plan()
 
 def rst_in(m,ts,pct,room):
     # 리셋 칸: 넓으면 '3일14시간 뒤 · 11/9(월) 15:00', 좁으면 '3일14시간 뒤'. 칸에 맞는 첫 후보를 쓴다.
-    if m is None: cands=(t('new_window_full'),t('new_window_short'),t('new_window_tiny')) if pct==0 else ('-',)
+    if m is None: cands=(t('new_window_full'),t('new_window_short'),t('new_window_tiny')) if pct==0 else ((t('sess_unreported_full'),t('sess_unreported_short'),t('sess_unreported_tiny')) if pct is None else ('-',))
     elif m<=0: cands=(t('soon'),)
     else: cands=(t('rst_in',t=left(m),w=when(m,ts)), t('rst_short',t=left(m)), left(m))
     return next((c for c in cands if dw(c)<=room), cut(cands[-1],room))

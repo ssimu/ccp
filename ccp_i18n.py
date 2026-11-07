@@ -124,6 +124,10 @@ M = {
     "rd_soon":         ("곧 리셋", "resets soon", "まもなくリセット", "即将重置"),
     "rst_short":       ("{t} 뒤", "in {t}", "{t}後", "{t}后"),
     "new_window_short":("새 창 · 5h 전부", "new · full 5h", "新枠 · 5h全部", "新窗口 · 5h全部"),
+    # API 가 세션(5시간) 항목을 아예 안 준 계정 — 0% 가 아니라 모르는 값이다(2026-11-07, 쓰고 있는 계정에서도 그랬다)
+    "sess_unreported_full": ("세션 미보고 · API가 5시간 한도를 안 줌", "session not reported · API gave no 5h limit", "セッション未報告 · APIが5時間枠を返さず", "会话未报告 · API未给出5小时限额"),
+    "sess_unreported_short":("세션 미보고", "not reported", "未報告", "未报告"),
+    "sess_unreported_tiny": ("미보고", "n/r", "未報告", "未报告"),
     "new_window_tiny": ("새 창", "new", "新枠", "新窗口"),
     "ch_binds":        ("◀ {m}이 먼저 막음", "◀ {m} blocks first", "◀ {m} が先に上限", "◀ {m} 先到限"),
     "ch_legend1":      ("  막대 = 남은 양(길수록 여유) · 숫자 = 남은 % · 리셋까지 = 남은 시간 뒤 · 풀리는 시각 · 하나라도 0%면 지금은 못 쓴다",

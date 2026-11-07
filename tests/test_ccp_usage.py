@@ -242,9 +242,9 @@ def test_잠겨_있으면_refresh_도_조용히_건너뛴다(monkeypatch, tmp_pa
     ccp_usage.refresh("")
 
 
-def test_세션_창이_없으면_percent_가_null_인데_0_으로_본다(monkeypatch, tmp_path):
-    # 최근 5시간 동안 안 쓴 프로필은 limits 의 session percent 가 null 로 온다. 비워 두면 메뉴에 '-' 로 떠서
-    # 조회가 안 된 것처럼 보인다. 창이 아직 안 열린 것이니 0% 로 보인다(렌더러가 '새 창' 으로 적는다).
+def test_세션_percent_가_null_이면_빈칸_미보고(monkeypatch, tmp_path):
+    # percent null 은 모르는 값이다. 2026-11-07: 쓰고 있는 계정에도 API 가 세션 항목을 안 줬는데 0% 로 꾸미니
+    # "새 창 · 5시간 전부 남음" 으로 떠서 틀렸다. 빈칸으로 두고 렌더러가 '세션 미보고' 로 적는다.
     import time, json as _j
     p = tmp_path / ".claude.json"
     p.write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
@@ -254,10 +254,10 @@ def test_세션_창이_없으면_percent_가_null_인데_0_으로_본다(monkeyp
                                                           {"kind": "weekly_all", "percent": 12, "resets_at": "2030-01-01T00:00:00Z"},
                                                           {"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}]}}}))
     row, age = ccp_usage.native_cache(str(tmp_path))
-    assert row[0] == "12" and row[2] == "0" and row[3] == "" and row[4] == "Fable" and row[5] == "0" and row[6] == "ok"
+    assert row[0] == "12" and row[2] == "" and row[3] == "" and row[4] == "Fable" and row[5] == "0" and row[6] == "ok"
 
 
-def test_세션_슬롯이_아예_없어도_주간이_있으면_세션은_0(monkeypatch, tmp_path):
+def test_세션_슬롯이_아예_없으면_빈칸_미보고_이고_0_이면_0(monkeypatch, tmp_path):
     import time, json as _j
     p = tmp_path / ".claude.json"
     p.write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
@@ -266,7 +266,39 @@ def test_세션_슬롯이_아예_없어도_주간이_있으면_세션은_0(monke
                                                           {"kind": "weekly_all", "percent": 2, "resets_at": "2030-01-01T00:00:00Z"},
                                                           {"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}]}}}))
     row, age = ccp_usage.native_cache(str(tmp_path))
-    assert row[0] == "2" and row[2] == "0" and row[3] == "" and row[6] == "ok"
+    assert row[0] == "2" and row[2] == "" and row[3] == "" and row[6] == "ok"
+    p.write_text(_j.dumps({"oauthAccount": {"accountUuid": "a"},
+                           "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int(time.time() * 1000),
+                                                      "utilization": {"limits": [
+                                                          {"kind": "session", "percent": 0, "resets_at": None},
+                                                          {"kind": "weekly_all", "percent": 2, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
+    row, age = ccp_usage.native_cache(str(tmp_path))
+    assert row[2] == "0" and row[3] == ""            # API 가 0 을 준 것은 진짜 새 창
+
+
+def test_usage_글에_세션_줄이_없으면_빈칸():
+    f = fields(ccp_usage.parse("Current week (all models): 34% used · resets Nov 10 at 7:59am (Asia/Seoul)\nCurrent week (Fable): 63% used · resets Nov 10 at 7:59am (Asia/Seoul)\n", NOW))
+    assert f[0] == "34" and f[2] == "" and f[3] == "" and f[4] == "Fable" and f[5] == "63" and f[6] == "ok"
+
+
+def test_menu_는_캐시_글에_세션이_없으면_스냅숏의_세션_값을_가져온다(monkeypatch, tmp_path):
+    # /usage 글은 0% 새 창일 때도 세션 줄을 빼므로 글만으로는 '미보고' 와 구분이 안 된다
+    p = native_snapshot(monkeypatch, tmp_path, age=100)
+    monkeypatch.setattr(ccp_usage, "start_refresh", lambda d: None)
+    ccp_usage.write_cache(p, "\t".join(["83", "120", "", "", "Fable", "100", "ok", "", "", "10080", "300", ""]))
+    row = ccp_usage.menu(p).split("\t")
+    assert row[2] == "12" and row[3] != ""
+
+
+def test_renderer_shows_session_unreported_not_new_window(tmp_path):
+    import subprocess
+    from pathlib import Path
+    row = ['34', '3943', '', '', 'Fable', '62', 'ok', '11/10 08:00', '', '10080', '300', '']
+    (tmp_path / '0').write_text('\t'.join(row))
+    renderer = Path(ccp_usage.__file__).with_name('ccp_render.py')
+    env = dict(os.environ, CCP_LANG='ko')
+    result = subprocess.run([sys.executable, str(renderer), str(tmp_path), '-', '', 'claude:test'], capture_output=True, text=True, check=True, env=env)
+    assert '미보고' in result.stdout and '새 창' not in result.stdout and '조회 실패' not in result.stdout
 
 
 def test_신선한_스냅숏에는_cache_메모가_없고_낡으면_붙는다(monkeypatch, tmp_path):
@@ -295,7 +327,7 @@ def test_menu_는_갱신_캐시_파일이_스냅숏보다_새로우면_그쪽을
     assert f[0] == "12" and f[6] == "ok" and f[11] == ""      # 스냅숏(50%, 50분 전)이 아니라 방금 쓴 캐시(12%)
 
 
-def test_parse_주간만_있고_세션_줄이_없으면_세션은_0():
+def test_parse_주간만_있고_세션_줄이_없으면_세션은_빈칸_미보고():
     text = "Current week (all models): 25% used · resets Sep 14 at 3pm (Asia/Seoul)\n"
     f = fields(ccp_usage.parse(text, NOW))
-    assert f[0] == "25" and f[2] == "0" and f[3] == "" and f[6] == "ok"
+    assert f[0] == "25" and f[2] == "" and f[3] == "" and f[6] == "ok"

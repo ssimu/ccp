@@ -7,7 +7,7 @@
 캐시를 읽고, 오래됐으면 백그라운드에서 한 번 갱신한다.
 
 TSV 12칸 (ccp_render.py · ccp_codex.py 와 같다):
-  0 주간%  1 주간리셋(분)  2 세션%  3 세션리셋(분)  4 모델명  5 모델%
+  0 주간%  1 주간리셋(분)  2 세션%(API가 세션 한도를 안 주면 빈칸 = '미보고')  3 세션리셋(분)  4 모델명  5 모델%
   6 상태(ok/stale/nologin/fail)  7 주간리셋시각  8 세션리셋시각  9 주간창(분)  10 세션창(분)  11 메모
 
 명령:
@@ -149,9 +149,9 @@ def parse(text, now=None):
     if w is None and s is None:
         return "\t".join([""] * 6 + ["fail"] + [""] * 5)
     # claude 는 7일/5시간 창 고정. 뒤 세 칸은 codex 와 형식을 맞추려고 붙인다.
-    # 주간은 있는데 세션 줄이 없으면 5시간 창이 아직 안 열린 것 — 0% 로(비워 두면 메뉴에 '-' 로 떠서 조회 실패처럼 보인다)
-    s_val = num(s) or ("0" if num(w) else "")
-    return "\t".join([num(w), mins(wdt), s_val, mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
+    # 세션 줄이 없으면 빈칸으로 둔다 = '미보고'. 2026-11-07: 쓰고 있는 계정(imok)에도 API 가 세션 항목을 아예 안 줬는데
+    # 그걸 0% 로 꾸미니 "새 창 · 5시간 전부 남음" 으로 떠서 틀렸다. 렌더러가 '세션 미보고' 로 적는다(조회 실패와 다른 글).
+    return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
 
 
 STALE_AFTER = 1800   # 초. 이 넘게 묵은 스냅숏만 '낡음' 표시 — 주간 한도는 느리게 움직이므로 5분은 너무 공격적이었다(전부 낡음으로 떠서 추천·그래프에서 빠짐)
@@ -228,8 +228,7 @@ def native_cache(profile_dir):
         row[6], row[9], row[10] = "ok", "10080", "300"
         for slot in limits:
             kind, pct = slot.get("kind"), slot.get("percent")
-            if pct is None and kind in ("session", "weekly_all"):
-                pct = 0   # 창이 아직 안 열림(최근 5시간/7일 사용 없음) — 비워 두면 '-' 로 떠서 조회 실패처럼 보인다
+            # percent 가 null 이면 모르는 값이다 — 0 으로 꾸미지 않는다(빈칸 = 미보고). API 가 0 을 주면 그때만 0(새 창).
             if not isinstance(pct, (int, float)) or isinstance(pct, bool) or not math.isfinite(pct) or not 0 <= pct <= 100:
                 continue
             if kind in ("session", "weekly_all"):
@@ -248,8 +247,6 @@ def native_cache(profile_dir):
                     row[4], row[5] = model.replace("\t", " ").replace("\n", " "), str(int(round(pct)))
         if not row[0] and not row[2]:
             return None, None
-        if row[0] and not row[2]:
-            row[2] = "0"   # 5시간 창이 아직 안 열렸으면 limits 에 session 슬롯 자체가 없다 — 0% (렌더러는 '새 창')
         if age > STALE_AFTER:
             row[6] = "stale"
             # 낡은 값일 때만 언제 것인지 적는다 — 신선하면 카드가 깨끗해야 한다(옛 /usage 파싱 때와 같은 모양).
@@ -279,6 +276,9 @@ def menu(profile_dir):
     # 갱신이 끝나도 스냅숏만 보면 영원히 낡은 값이 떠 있었다.
     cached, cage = read_cache(profile_dir)
     if cached is not None and cached[6] == "ok" and (row is None or (age is not None and cage < age)):
+        # /usage 글에는 세션 줄이 '0% 새 창' 일 때도 빠질 수 있어 글만으로는 '미보고' 와 구분이 안 된다 — 스냅숏에 세션 값이 있으면 그걸 가져온다
+        if row is not None and not cached[2] and row[2]:
+            cached = list(cached); cached[2], cached[3], cached[8] = row[2], row[3], row[8]
         row, age = cached, cage
         if age > STALE_AFTER:
             row = list(row); row[6] = "stale"
