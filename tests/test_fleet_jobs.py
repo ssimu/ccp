@@ -72,3 +72,23 @@ def test_projects_missing_or_broken(tmp_path, monkeypatch):
     (tmp_path / "bad.json").write_text("{nope")
     monkeypatch.setattr(fj, "PROJECTS", str(tmp_path / "bad.json"))
     assert fj.projects() == {}
+
+
+def _job(tmp_path, monkeypatch):
+    monkeypatch.setattr(fj, "REG", str(tmp_path))
+    return {"id": "j1", "machine": "macmini", "address": "macmini/t9", "result": "/x/j1.result.md", "task": "t",
+            "profile": "p", "cwd": "~/fleet-work", "created_at": "2026-11-07T19:00:00+09:00", "phase": "running"}
+
+
+def test_gone_terminal_with_result_is_done(tmp_path, monkeypatch):
+    j = _job(tmp_path, monkeypatch)
+    monkeypatch.setattr(fj, "hc_json", lambda *a, **k: {"error": {"code": "not_found"}, "rc": 1})
+    monkeypatch.setattr(fj, "remote_read", lambda m, p: "고쳤다\n")
+    assert fj.phase(j) == "done" and j["result_text"] == "고쳤다"
+
+
+def test_gone_terminal_without_result_is_lost(tmp_path, monkeypatch):
+    j = _job(tmp_path, monkeypatch)
+    monkeypatch.setattr(fj, "hc_json", lambda *a, **k: {"error": {"code": "not_found"}, "rc": 1})
+    monkeypatch.setattr(fj, "remote_read", lambda m, p: None)
+    assert fj.phase(j) == "lost" and "not_found" in j["hc"]

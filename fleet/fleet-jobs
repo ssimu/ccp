@@ -155,7 +155,16 @@ def phase(j, refresh=True):
         return "stopped"
     g = hc_json("get", j["address"], timeout=30)
     if "error" in g or not g.get("address"):
-        j["phase"] = "lost"; j["hc"] = g.get("error", "")[:200]; return "lost"
+        # 터미널이 없다 — 끝나면 나가는 codex 는 hc 가 터미널을 치운다. 결과 파일이 있으면 그것으로 판정한다.
+        res = remote_read(j["machine"], j["result"])
+        if res is not None:
+            j["result_text"] = res.strip(); j["phase"] = classify("finished", None, 1, res.strip())
+        else:
+            j["phase"] = "lost"; j["hc"] = str(g.get("error", ""))[:200]
+        if not j.get("finished_at"):
+            j["finished_at"] = now().isoformat()
+        save(j)
+        return j["phase"]
     st = g.get("status") or {}
     state = st.get("state") if isinstance(st, dict) else st
     j["hc"] = {"state": g.get("state"), "status": state, "turn": g.get("turn"), "exit_code": g.get("exit_code")}
