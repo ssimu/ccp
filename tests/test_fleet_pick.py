@@ -39,3 +39,9 @@ def test_stale_usable_but_fresh_preferred_on_tie():
 def test_session_nearly_full_skipped():
     best, _ = fp.choose([R("a", "10", session="96"), R("b", "50", session="5")], exclude=[], max_pct=80)
     assert best["profile"] == "b"
+
+
+def test_too_old_skipped():
+    old = dict(R("a", "10", "stale"), age=7 * 3600)
+    best, rows = fp.choose([old, dict(R("b", "60"), age=10)], exclude=[], max_pct=80)
+    assert best["profile"] == "b" and rows[0]["skip"].startswith("사용량 낡음")

@@ -15,6 +15,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 SESSION_FULL = 95   # 5시간 창이 이만큼 찼으면 주간이 남아도 곧 막힌다
+REFRESH_AFTER = 1800   # 초. 이보다 묵은 Claude 사용량은 고르기 전에 그 자리에서 새로 받아 본다
+MAX_AGE = 6 * 3600     # 새로 받지도 못하고 이보다 묵었으면 믿지 않는다 (2026-11-08 wooui 가 38시간 묵은 25% 를 내놓았다 — 실제 59%)
 
 
 def _int(s):
@@ -32,6 +34,8 @@ def choose(rows, exclude, max_pct):
         w, s = _int(r.get("weekly")), _int(r.get("session"))
         if r["profile"] in exclude:
             r["skip"] = "제외"
+        elif (r.get("age") or 0) > MAX_AGE:
+            r["skip"] = f"사용량 낡음 {int(r['age'] // 3600)}시간"
         elif r.get("state") not in ("ok", "stale"):
             r["skip"] = f"상태 {r.get('state') or '?'}"
         elif w is None:
@@ -48,15 +52,29 @@ def choose(rows, exclude, max_pct):
     return (ok[0] if ok else None), out
 
 
-def claude_rows():
+def claude_rows(exclude=()):
     sys.path.insert(0, REPO)
     import ccp_usage
     root = os.environ.get("CLAUDE_PROFILES", os.path.expanduser("~/.claude-profiles"))
     dirs = [("default", "")] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.join(root, "*")))
                                 if os.path.isdir(d) and not os.path.basename(d).startswith(".") and not d.endswith(".lock")]
-    for name, d in dirs:
-        f = ccp_usage.menu(d).split("\t")
-        yield {"profile": name, "weekly": f[0], "session": f[2], "state": f[6]}
+    from concurrent.futures import ThreadPoolExecutor
+
+    def age_of(d):
+        ages = [a for a in (ccp_usage.native_cache(d)[1], ccp_usage.read_cache(d)[1]) if a is not None]
+        return min(ages) if ages else None
+
+    def one(item):
+        name, d = item
+        f, age = ccp_usage.menu(d).split("\t"), age_of(d)
+        if name not in exclude and f[6] in ("ok", "stale") and (age is None or age > REFRESH_AFTER):
+            line = ccp_usage.probe(d, tries=1)          # claude -p /usage (~3초). 이 Mac 의 데스크톱 core 경로라 키체인이 열려 있다
+            if line.split("\t")[6] == "ok":
+                ccp_usage.save(d, line); f, age = line.split("\t"), 0
+        return {"profile": name, "weekly": f[0], "session": f[2], "state": f[6], "age": age}
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        yield from ex.map(one, dirs)
 
 
 def codex_rows():
@@ -75,8 +93,9 @@ def main():
     ap.add_argument("--exclude", default="imok")
     ap.add_argument("--max", type=int, default=80)
     a = ap.parse_args()
-    rows = list(claude_rows() if a.agent == "claude" else codex_rows())
-    best, rows = choose(rows, [x for x in a.exclude.split(",") if x], a.max)
+    excl = [x for x in a.exclude.split(",") if x]
+    rows = list(claude_rows(excl) if a.agent == "claude" else codex_rows())
+    best, rows = choose(rows, excl, a.max)
     print(json.dumps({"agent": a.agent, "profile": best and best["profile"], "weekly": best and best["weekly"],
                       "candidates": rows}, ensure_ascii=False))
 
