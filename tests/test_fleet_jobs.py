@@ -222,3 +222,12 @@ def test_list_drops_ask_answered_at_computer_after_telegram(board, capsys):
     board["status"] = "working"               # 그 뒤 컴퓨터에서 답했다
     fj.cmd_list(argparse.Namespace(all=False, project=None, json=False))
     assert "결정 필요" not in capsys.readouterr().out and fj.load(j["id"])["phase"] == "answered"
+
+
+def test_ask_on_busy_terminal_waits_for_idle_before_auto_close(board):
+    board["status"] = "working"               # 마스터가 다른 일을 시킨 직후 올렸다
+    j = _ask()[0]
+    assert j["armed"] is False
+    assert fj.phase(j) == "question"          # 일하는 중이어도 닫히지 않는다
+    board["status"] = "done"; assert fj.phase(j) == "question" and j["armed"] is True
+    board["status"] = "working"; assert fj.phase(j) == "answered"   # 그 뒤 다시 일하면 사람이 답한 것

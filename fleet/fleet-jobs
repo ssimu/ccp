@@ -241,6 +241,11 @@ def ask_phase(j):
     state = st.get("state") if isinstance(st, dict) else st
     if "error" in g or not g.get("address") or g.get("state") != "live":
         j["phase"] = "answered"; j["answer"] = "(터미널이 없어져 닫음)"
+    elif not j.get("armed", True):
+        # 올릴 때 터미널이 다른 일을 하고 있었다 — 그 일이 끝나 쉬는 것을 한 번 본 뒤부터 '다시 일함 = 사람이 답함' 으로 본다
+        if state in ("idle", "done"):
+            j["armed"] = True; save(j)
+        return "question"
     elif state == "working":
         j["phase"] = "answered"; j["answer"] = "(컴퓨터에서 직접 답함)"
     else:
@@ -264,7 +269,9 @@ def cmd_ask(a):
         j.update(result_text=body, task=text, reported=False); save(j)
         print(f"질문 고침 [{j['id']}] {addr}"); return
     jid = now().strftime("j%y%m%d-%H%M%S")
-    j = {"id": jid, "kind": "ask", "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
+    st = g.get("status") or {}
+    busy = (st.get("state") if isinstance(st, dict) else st) == "working"
+    j = {"id": jid, "kind": "ask", "armed": not busy, "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
          "machine": m, "profile": "대화형", "cwd": (g.get("foreground") or {}).get("cwd") or g.get("cwd") or "", "task": text,
          "address": addr, "result": "", "result_text": body, "created_at": now().isoformat(), "phase": "question", "reported": False}
     save(j)
