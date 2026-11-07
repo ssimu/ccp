@@ -9,6 +9,9 @@
   fleet-jobs result <id>             # 결과 파일(없으면 화면 꼬리)
   fleet-jobs send <id> <message>     # 돌고 있는 에이전트에 지시 추가
   fleet-jobs stop <id>
+  fleet-jobs ask --on M --terminal T [--project J] [--name N] (QUESTION | -)
+                                     # 사람의 대화형 터미널에서 나온 질문을 '결정 필요'로 올린다(투입 작업이 아님).
+                                     # 컴퓨터에서 그 터미널에 직접 답하면 다음 확인 때 저절로 닫힌다. send 로 답하면 그 터미널에 넣고 닫는다.
   fleet-jobs unreported              # 끝났는데 아직 알리지 않은 작업을 출력하고 알림 처리 (cron 용, 없으면 무출력)
   fleet-jobs clean [--age H]         # 알린 지 H시간(기본 6) 지난 작업의 터미널 정리
   fleet-jobs machines
@@ -25,7 +28,7 @@ HC = os.path.join(HOME, ".local/bin/hc")
 REG = os.path.join(HOME, ".local/share/fleet-jobs")
 CFG = os.path.join(HOME, ".config/ccp/fleet-dispatch.json")
 PROJECTS = os.path.join(HOME, ".config/ccp/fleet-projects.json")
-TERMINAL = {"done", "question", "blocked", "error", "exited", "stopped", "lost"}
+TERMINAL = {"done", "question", "answered", "blocked", "error", "exited", "stopped", "lost"}
 AGENTS = ("claude", "codex")
 
 
@@ -188,6 +191,8 @@ def phase(j, refresh=True):
         return j["phase"]
     if j.get("phase") in ("stopped",):
         return "stopped"
+    if j.get("kind") == "ask":
+        return ask_phase(j)
     g = hc_json("get", j["address"], timeout=30)
     if "error" in g or not g.get("address"):
         # 터미널이 없다 — 끝나면 나가는 codex 는 hc 가 터미널을 치운다. 결과 파일이 있으면 그것으로 판정한다.
@@ -227,6 +232,45 @@ def phase(j, refresh=True):
     return j["phase"]
 
 
+def ask_phase(j):
+    """대화형 질문: 열려 있는 동안 그 터미널이 다시 일하기 시작했으면 사람이 컴퓨터에서 답한 것 — 닫는다."""
+    if j.get("phase") != "question":
+        return j["phase"]
+    g = hc_json("get", j["address"], timeout=30)
+    st = g.get("status") or {}
+    state = st.get("state") if isinstance(st, dict) else st
+    if "error" in g or not g.get("address") or g.get("state") != "live":
+        j["phase"] = "answered"; j["answer"] = "(터미널이 없어져 닫음)"
+    elif state == "working":
+        j["phase"] = "answered"; j["answer"] = "(컴퓨터에서 직접 답함)"
+    else:
+        return "question"
+    j["reported"] = True; j["finished_at"] = now().isoformat(); save(j)
+    return j["phase"]
+
+
+def cmd_ask(a):
+    text = (sys.stdin.read() if a.question == "-" else a.question).strip()
+    if not text:
+        sys.exit("질문이 비었다")
+    m = a.on or "local"
+    addr = a.terminal if m == "local" or "/" in a.terminal else f"{m}/{a.terminal}"
+    g = hc_json("get", addr, timeout=30)
+    if "error" in g or not g.get("address"):
+        sys.exit(f"없는 터미널: {addr}")
+    body = text if text.startswith("질문") else "질문: " + text
+    j = next((x for x in all_jobs() if x.get("kind") == "ask" and x.get("address") == addr and x.get("phase") == "question"), None)
+    if j:      # 같은 터미널에 열린 질문이 있으면 새로 만들지 않고 고쳐서 다시 알린다
+        j.update(result_text=body, task=text, reported=False); save(j)
+        print(f"질문 고침 [{j['id']}] {addr}"); return
+    jid = now().strftime("j%y%m%d-%H%M%S")
+    j = {"id": jid, "kind": "ask", "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
+         "machine": m, "profile": "대화형", "cwd": (g.get("foreground") or {}).get("cwd") or g.get("cwd") or "", "task": text,
+         "address": addr, "result": "", "result_text": body, "created_at": now().isoformat(), "phase": "question", "reported": False}
+    save(j)
+    print(f"질문 올림 [{jid}] {(a.project + ' · ') if a.project else ''}{addr} — 답: fleet-jobs send {jid} \"<답>\"")
+
+
 def auto_dialog_keys(tail):
     """첫 실행 대화상자 중 답이 정해진 것: 누를 키 목록. 모르는 것은 None(사람에게)."""
     if "Bypass Permissions mode" in tail and "Yes, I accept" in tail:
@@ -248,7 +292,7 @@ def screen_tail(j, lines=25):
 
 def fmt(j, with_result=False):
     ph = j.get("phase", "?")
-    label = {"running": "작업 중", "idle": "대기(결과 파일 없음)", "done": "완료", "question": "결정 필요(질문)", "blocked": "사람 필요(blocked)", "dialog": "대화상자에 멈춤(사람 필요)",
+    label = {"running": "작업 중", "idle": "대기(결과 파일 없음)", "done": "완료", "question": "결정 필요(질문)", "answered": "답함", "blocked": "사람 필요(blocked)", "dialog": "대화상자에 멈춤(사람 필요)",
              "error": "오류", "exited": "종료됨", "stopped": "중지함", "lost": "터미널 없음"}.get(ph, ph)
     who = j['profile'] if j.get('agent', 'claude') == 'claude' else f"codex:{j.get('codex_profile', 'default')}"
     proj = f"{j['project']} · " if j.get('project') else ""
@@ -330,11 +374,14 @@ def cmd_list(a):
     js = all_jobs()
     if a.project:
         js = [j for j in js if j.get("project") == a.project]
+    open_ask = lambda j: j.get("kind") == "ask" and j.get("phase") == "question"
     if not a.all:
-        js = [j for j in js if j.get("phase") not in TERMINAL or not j.get("reported")]
+        js = [j for j in js if j.get("phase") not in TERMINAL or not j.get("reported") or open_ask(j)]
     for j in js:
-        if j.get("phase") not in TERMINAL:
-            phase(j)
+        if j.get("phase") not in TERMINAL or open_ask(j):
+            phase(j)          # 열린 대화형 질문도 다시 본다 — 컴퓨터에서 답했으면 여기서 닫힌다
+    if not a.all:
+        js = [j for j in js if j.get("phase") not in TERMINAL or not j.get("reported") or open_ask(j)]
     if a.json:
         print(json.dumps(js, ensure_ascii=False)); return
     if not js:
@@ -400,6 +447,12 @@ def clear_result(j):
 
 def cmd_send(a):
     j = load(a.id)
+    if j.get("kind") == "ask":
+        if ask_phase(j) != "question":
+            sys.exit(f"이미 닫힌 질문 [{j['id']}] — {j.get('answer', j['phase'])}. 보내지 않았다.")
+        p = hc("send", j["address"], a.message, timeout=60)
+        j.update(phase="answered", answer=a.message, reported=True, finished_at=now().isoformat()); save(j)
+        print(f"답을 {j['address']} 에 넣고 닫음 [{j['id']}]"); return
     if j.get("agent", "claude") == "codex":
         sys.exit("codex 작업은 끝나면 나간다 — 이어서 시킬 일은 새 작업으로 투입한다(이전 결과를 작업문에 붙여서)")
     clear_result(j)
@@ -412,6 +465,9 @@ def cmd_send(a):
 
 def cmd_stop(a):
     j = load(a.id)
+    if j.get("kind") == "ask":      # 사람의 터미널이다 — 죽이지 않고 질문만 닫는다
+        j.update(phase="stopped", reported=True, finished_at=now().isoformat()); save(j)
+        print(f"질문 닫음 [{j['id']}] (터미널은 그대로)"); return
     hc("kill", j["address"], timeout=30); hc("rm", j["address"], timeout=30)
     j["phase"] = "stopped"; j["reported"] = True; j["finished_at"] = now().isoformat(); save(j)
     print(f"중지함 [{j['id']}]")
@@ -425,13 +481,16 @@ def cmd_unreported(a):
         if phase(j) in TERMINAL:
             out.append(fmt(j, with_result=True)); j["reported"] = True; save(j)
     if out:
-        print("함대 작업 완료\n" + "\n\n".join(out))
+        head = "함대 — 결정 필요" if any("결정 필요" in o.splitlines()[0] for o in out) else "함대 작업 완료"
+        print(head + "\n" + "\n\n".join(out))
 
 
 def cmd_clean(a):
     """알림까지 끝난 작업의 터미널을 치운다(기본: 끝난 지 6시간 넘은 것). 기록 JSON 은 남긴다."""
     n = 0
     for j in all_jobs():
+        if j.get("kind") == "ask":
+            continue                # 사람의 대화형 터미널은 치우지 않는다
         if j.get("phase") in TERMINAL and j.get("reported") and not j.get("cleaned"):
             fin = j.get("finished_at")
             age_h = (now() - datetime.datetime.fromisoformat(fin)).total_seconds() / 3600 if fin else 99
@@ -472,6 +531,7 @@ def main():
     r = sp.add_parser("result"); r.add_argument("id"); r.set_defaults(f=cmd_result)
     se = sp.add_parser("send"); se.add_argument("id"); se.add_argument("message"); se.set_defaults(f=cmd_send)
     st = sp.add_parser("stop"); st.add_argument("id"); st.set_defaults(f=cmd_stop)
+    ak = sp.add_parser("ask"); ak.add_argument("--on"); ak.add_argument("--terminal", required=True); ak.add_argument("--project"); ak.add_argument("--name"); ak.add_argument("question"); ak.set_defaults(f=cmd_ask)
     u = sp.add_parser("unreported"); u.set_defaults(f=cmd_unreported)
     c = sp.add_parser("clean"); c.add_argument("--age", type=float, default=6); c.add_argument("--quiet", action="store_true"); c.set_defaults(f=cmd_clean)
     pj = sp.add_parser("projects"); pj.add_argument("--json", action="store_true"); pj.set_defaults(f=cmd_projects)

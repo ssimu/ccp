@@ -125,3 +125,100 @@ def test_resolve_reads_top_level_auto_defaults():
     conf = {"profile": "auto", "codex_profile": "auto", "machines": {}}
     r = fj.resolve(conf, {}, on="wooui", project=None, profile=None, cwd=None, agent="codex")
     assert r["profile"] == "auto" and r["codex_profile"] == "auto"
+
+
+# ── 대화형 터미널 질문(ask) ── 사람의 대화형 Claude 터미널에서 나온 질문을 작업판에 올린다(2026-11-08).
+
+@pytest.fixture
+def board(tmp_path, monkeypatch):
+    monkeypatch.setattr(fj, "REG", str(tmp_path))
+    state = {"status": "idle", "sent": [], "killed": []}
+
+    def fake_hc_json(*args, timeout=60):
+        if args[0] == "get":
+            return {"address": args[1], "state": "live", "status": {"state": state["status"]}, "turn": 5,
+                    "foreground": {"cwd": "/Users/swh/proj"}}
+        return {}
+
+    class P:
+        returncode = 0; stdout = ""; stderr = ""
+
+    def fake_hc(*args, timeout=60, check=False):
+        if args[0] == "send":
+            state["sent"].append((args[1], args[2]))
+        if args[0] in ("kill", "rm"):
+            state["killed"].append(args[1])
+        return P()
+
+    monkeypatch.setattr(fj, "hc_json", fake_hc_json)
+    monkeypatch.setattr(fj, "hc", fake_hc)
+    return state
+
+
+def _ask(text="배포할까요?", on="mbp2", terminal="t13", project="picdock"):
+    import argparse
+    fj.cmd_ask(argparse.Namespace(on=on, terminal=terminal, project=project, name=None, question=text))
+    return [j for j in fj.all_jobs() if j.get("kind") == "ask"]
+
+
+def test_ask_creates_unreported_question(board):
+    js = _ask()
+    assert len(js) == 1
+    j = js[0]
+    assert j["address"] == "mbp2/t13" and j["phase"] == "question" and j["reported"] is False
+    assert j["result_text"].startswith("질문:") and "배포할까요?" in j["result_text"]
+
+
+def test_ask_same_terminal_updates_instead_of_duplicate(board):
+    _ask("첫 질문")
+    js = _ask("고친 질문")
+    assert len(js) == 1 and "고친 질문" in js[0]["result_text"] and js[0]["reported"] is False
+
+
+def test_ask_stays_question_while_terminal_idle(board):
+    j = _ask()[0]
+    assert fj.phase(j) == "question"
+
+
+def test_ask_answered_at_computer_closes_itself(board):
+    j = _ask()[0]
+    board["status"] = "working"          # 사람이 그 터미널에 직접 답했다
+    assert fj.phase(j) == "answered"
+    assert j["reported"] is True and "컴퓨터" in j["answer"]
+
+
+def test_send_to_open_ask_relays_and_closes(board):
+    import argparse
+    j = _ask()[0]
+    fj.cmd_send(argparse.Namespace(id=j["id"], message="승인"))
+    j = fj.load(j["id"])
+    assert board["sent"] == [("mbp2/t13", "승인")]
+    assert j["phase"] == "answered" and j["answer"] == "승인" and j["reported"] is True
+
+
+def test_send_to_closed_ask_refuses(board):
+    import argparse
+    j = _ask()[0]
+    board["status"] = "working"; fj.phase(j)
+    with pytest.raises(SystemExit) as e:
+        fj.cmd_send(argparse.Namespace(id=j["id"], message="승인"))
+    assert "이미" in str(e.value) and board["sent"] == []
+
+
+def test_stop_and_clean_never_kill_interactive_terminal(board):
+    import argparse
+    j = _ask()[0]
+    fj.cmd_stop(argparse.Namespace(id=j["id"]))
+    fj.cmd_clean(argparse.Namespace(age=0, quiet=True))
+    assert board["killed"] == [] and fj.load(j["id"])["phase"] == "stopped"
+
+
+def test_list_drops_ask_answered_at_computer_after_telegram(board, capsys):
+    import argparse
+    j = _ask()[0]
+    j["reported"] = True; fj.save(j)          # 이미 Telegram 으로 알렸다
+    fj.cmd_list(argparse.Namespace(all=False, project=None, json=False))
+    assert "결정 필요" in capsys.readouterr().out
+    board["status"] = "working"               # 그 뒤 컴퓨터에서 답했다
+    fj.cmd_list(argparse.Namespace(all=False, project=None, json=False))
+    assert "결정 필요" not in capsys.readouterr().out and fj.load(j["id"])["phase"] == "answered"
