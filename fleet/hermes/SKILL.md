@@ -1,6 +1,6 @@
 ---
 name: fleet-dispatch
-description: "집 Mac 함대(관문 old-mbp)에 Claude Code 코딩 작업을 투입하고 결과를 회수한다. Telegram 에서 '맥미니에서 ~ 해줘', '함대에 작업', '작업 결과' 류 요청에 쓴다."
+description: "집 Mac 함대(관문 macmini)에 Claude Code 코딩 작업을 투입하고 결과를 회수한다. Telegram 에서 '맥미니에서 ~ 해줘', '함대에 작업', '작업 결과' 류 요청에 쓴다."
 version: 1.1.0
 author: ccp (ssimu/ccp fleet/hermes)
 license: MIT
@@ -13,12 +13,12 @@ metadata:
 
 # 함대 작업 투입 (fleet-dispatch)
 
-사용자의 집 Mac 네 대에 Claude Code 작업을 던지고 결과를 가져온다. 모든 명령은 관문 old-mbp 에 SSH 로 들어가서 돌린다.
+사용자의 집 Mac 네 대에 Claude Code 작업을 던지고 결과를 가져온다. 모든 명령은 관문 macmini(2026-11-08 부터, 유선·선더볼트 가운데)에 SSH 로 들어가서 돌린다.
 관문의 `fleet-jobs` 가 각 Mac 의 데스크톱 Herdr(hc) 터미널에서 `ccp <프로필>` 로 Claude Code 를 띄운다(키체인이 열린 세션이라 로그인이 안 끊긴다).
 
 ```bash
 FLEET="bash $HOME/.hermes/scripts/fleet.sh"        # 인자를 따옴표째 안전하게 관문으로 넘긴다. ssh 를 손으로 조립하지 않는다.
-$FLEET machines                                     # 머신 목록·기본 프로필 (local=old-mbp, macmini, wooui, mbp2)
+$FLEET machines                                     # 머신 목록·기본 프로필 (local=macmini — '맥미니'라고 해도 된다, wooui, mbp2=지휘소 Mac, old-mbp)
 $FLEET dispatch --on macmini --name <짧은이름> "<작업문>"    # 투입 → '투입함 [j261106-093752] …' 의 id 를 쓴다
 $FLEET dispatch --on wooui --profile amc-personal --cwd '~/projects/foo' "<작업문>"
 $FLEET wait <id> --timeout 150                      # 끝나면 결과까지 출력. 150초 안에 안 끝나면 '아직 끝나지 않음'

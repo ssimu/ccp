@@ -525,7 +525,9 @@ def cmd_machines(a):
     if a.json:
         print(json.dumps(rows, ensure_ascii=False)); return
     for r in rows:
-        print(f"{r['machine']:8} {r['state']:12} 기본 프로필 {r.get('profile','default'):12} {r.get('label','')}")
+        prof = conf.get("profile", "default") if not r.get("profile") else r["profile"]
+        prof = f"자동(대체 {r.get('fallback_profile', 'default')})" if prof == "auto" else prof
+        print(f"{r['machine']:8} {r['state']:12} 계정 {prof:22} {r.get('label','')}")
 
 
 def main():
