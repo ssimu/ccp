@@ -68,12 +68,14 @@ def claude_rows(exclude=()):
         name, d = item
         f, age = ccp_usage.menu(d).split("\t"), age_of(d)
         if name not in exclude and f[6] in ("ok", "stale") and (age is None or age > REFRESH_AFTER):
-            line = ccp_usage.probe(d, tries=1)          # claude -p /usage (~3초). 이 Mac 의 데스크톱 core 경로라 키체인이 열려 있다
+            # claude -p /usage (혼자면 3~7초). 이 Mac 의 데스크톱 core 경로라 키체인이 열려 있다.
+            # 부하 큰 Mac(wooui)에서 6개를 동시에 20초 제한으로 돌리면 전부 시간 초과였다 → 동시 3개, 30초.
+            line = ccp_usage.parse(ccp_usage.fetch(d, timeout=30))
             if line.split("\t")[6] == "ok":
                 ccp_usage.save(d, line); f, age = line.split("\t"), 0
         return {"profile": name, "weekly": f[0], "session": f[2], "state": f[6], "age": age}
 
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         yield from ex.map(one, dirs)
 
 
