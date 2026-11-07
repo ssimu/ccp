@@ -18,7 +18,9 @@ if [[ "$agent" == codex ]]; then
 
 ---
 [함대 작업 $id] 너의 마지막 답이 그대로 결과 보고가 된다. 마지막 답에 결과 요약(무엇을 했고 무엇이 남았는지, 10줄 이내)을 써라. 질문이 생기거나 막히면 마지막 답을 '질문:' 으로 시작해 묻고 멈춰라. 이 폴더 밖은 건드리지 마라. 커밋·push·발송은 작업문이 명시할 때만 한다."
-  exec zsh -lic 'CODEX_HOME="$1" codex exec --skip-git-repo-check -C "$2" -s "$3" -o "$4" "$5"' _ "$ch" "$cwd" "$mode" "$result" "$prompt"
+  # brew(npm) 판을 먼저 — macmini 의 ~/.local/bin/codex 처럼 옛 단독 실행 파일이 PATH 앞에 있으면 셸 도구(codex-code-mode-host)가 없어 명령을 못 돌린다(2026-11-07).
+  cx=codex; for c in /opt/homebrew/bin/codex /usr/local/bin/codex; do [[ -x "$c" ]] && { cx="$c"; break; }; done
+  exec zsh -lic 'CODEX_HOME="$1" "$6" exec --skip-git-repo-check -C "$2" -s "$3" -o "$4" "$5"' _ "$ch" "$cwd" "$mode" "$result" "$prompt" "$cx"
 fi
 cfg="$HOME/.claude.json"; [[ "$profile" != default ]] && cfg="$HOME/.claude-profiles/$profile/.claude.json"
 python3 - "$cfg" "$cwd" <<'PY'
