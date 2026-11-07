@@ -63,6 +63,7 @@ def resolve(conf, projs, on, project, profile, cwd, agent):
     if agent not in AGENTS:
         raise ValueError(f"모르는 에이전트: {agent} (가능: {', '.join(AGENTS)})")
     m = on or pj.get("machine") or "local"
+    m = conf.get("aliases", {}).get(m, m)   # 관문 자신의 이름(예: macmini) → local. 관문을 옮겨도 "macmini 에서" 가 통한다
     mc = conf.get("machines", {}).get(m, {})
     return {"machine": m,
             "profile": profile or pj.get("profile") or mc.get("profile") or conf.get("profile") or "default",

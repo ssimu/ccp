@@ -5,6 +5,7 @@
   "codex_profile": "auto",
   "exclude_profiles": ["imok"],
   "max_weekly_pct": 80,
+  "aliases": {"macmini": "local"},
   "machines": {
     "local":   {"fallback_profile": "team",     "label": "old-mbp (관문, Intel)"},
     "macmini": {"fallback_profile": "amc-team", "label": "Mac mini"},

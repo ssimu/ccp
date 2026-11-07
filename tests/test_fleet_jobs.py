@@ -231,3 +231,11 @@ def test_ask_on_busy_terminal_waits_for_idle_before_auto_close(board):
     assert fj.phase(j) == "question"          # 일하는 중이어도 닫히지 않는다
     board["status"] = "done"; assert fj.phase(j) == "question" and j["armed"] is True
     board["status"] = "working"; assert fj.phase(j) == "answered"   # 그 뒤 다시 일하면 사람이 답한 것
+
+
+def test_gateway_self_alias_maps_to_local():
+    conf = {"aliases": {"macmini": "local"}, "machines": {"local": {"fallback_profile": "amc-team"}}}
+    projs = {"demo": {"machine": "macmini", "cwd": "~/fleet-work/demo"}}
+    assert fj.resolve(conf, {}, on="macmini", project=None, profile=None, cwd=None, agent=None)["machine"] == "local"
+    assert fj.resolve(conf, projs, on=None, project="demo", profile=None, cwd=None, agent=None)["machine"] == "local"
+    assert fj.resolve(conf, {}, on="wooui", project=None, profile=None, cwd=None, agent=None)["machine"] == "wooui"
