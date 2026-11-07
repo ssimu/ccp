@@ -99,10 +99,9 @@ def pick_remote(conf):
     mx = str(conf.get("max_weekly_pct", 80))
     def pick(machine, agent):
         cmd = f"~/.local/bin/fleet-pick {agent} --exclude {shlex.quote(excl)} --max {mx}"
-        if machine == "local":
-            p = subprocess.run(["zsh", "-lc", cmd], capture_output=True, text=True, timeout=60)
-        else:
-            p = hc("exec", "--on", machine, "zsh", "-lc", cmd, timeout=60)
+        # 관문 자신도 hc(데스크톱 core)로 — Hermes 는 SSH 로 들어오므로 여기서 바로 돌리면 키체인이 잠겨 사용량을 못 읽는다(2026-11-08).
+        # 낡은 사용량을 다시 받으면 부하 큰 Mac 은 1분 가까이 걸린다 → 120초.
+        p = hc("exec", *on(machine), "zsh", "-lc", cmd, timeout=120)
         line = next((l for l in reversed(p.stdout.splitlines()) if l.startswith("{")), "")
         return json.loads(line) if line else None
     return pick
