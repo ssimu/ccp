@@ -286,3 +286,48 @@ def test_ask_keep_survives_terminal_working(board):
     board["status"] = "working"; assert fj.phase(j) == "question"
     fj.cmd_send(argparse.Namespace(id=j["id"], text="보내", message="보내"))
     assert fj.load(j["id"])["phase"] != "question"
+
+
+# ── 알림은 주요 이벤트만(2026-11-08 사용자: "Hermes 알림이 너무 많다") ──
+
+def test_unreported_skips_closed_asks(board, capsys):
+    # 질문이 닫힌 것(컴퓨터에서 답함·send 로 답함·터미널 사라짐)은 사람이 이미 아는 일 — 조용히 표시만 한다
+    j = _ask("배포할까요?")[0]
+    j["reported"] = True; fj.save(j)          # 처음 올린 질문은 이미 알림 나감
+    board["status"] = "working"; fj.phase(j)   # 컴퓨터에서 답함 → answered
+    capsys.readouterr()
+    fj.cmd_unreported(None)
+    assert capsys.readouterr().out == ""
+    assert fj.load(j["id"])["reported"] is True
+
+
+def test_reask_update_does_not_renotify_by_default(board):
+    j = _ask("첫 질문")[0]
+    j["reported"] = True; fj.save(j)
+    js = _ask("고친 질문")
+    assert js[0]["reported"] is True and "고친 질문" in js[0]["result_text"]
+
+
+def test_reask_with_notify_renotifies(board):
+    import argparse
+    j = _ask("첫 질문")[0]
+    j["reported"] = True; fj.save(j)
+    fj.cmd_ask(argparse.Namespace(on="mbp2", terminal="t13", project="picdock", name=None, question="중요하게 바뀜", notify=True))
+    assert fj.load(j["id"])["reported"] is False
+
+
+def test_unreported_still_sends_new_question_and_done(board, capsys):
+    _ask("새 질문")
+    capsys.readouterr()
+    fj.cmd_unreported(None)
+    out = capsys.readouterr().out
+    assert "결정 필요" in out and "새 질문" in out
+
+
+def test_done_message_is_short_question_is_full():
+    base = {"id": "j1", "machine": "macmini", "profile": "p", "task": "t", "cwd": "~/x", "created_at": "2026-11-08T10:00:00"}
+    long = "\n".join(f"줄{i}" for i in range(40))
+    done = fj.fmt({**base, "phase": "done", "result_text": long}, with_result=True)
+    q = fj.fmt({**base, "phase": "question", "result_text": long}, with_result=True)
+    assert "줄7" in done and "줄8" not in done and "fleet-jobs result j1" in done
+    assert "줄29" in q

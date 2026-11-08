@@ -279,7 +279,10 @@ def cmd_ask(a):
     st = g.get("status") or {}
     busy = (st.get("state") if isinstance(st, dict) else st) == "working"
     if j:      # 같은 터미널에 열린 질문이 있으면 새로 만들지 않고 고쳐서 다시 알린다(일하는 중이면 다시 쉴 때까지 자동 닫힘 보류)
-        j.update(result_text=body, task=text, reported=False, armed=not busy, keep=bool(getattr(a, "keep", False))); save(j)
+        # 고쳐 올리기는 기본으로 다시 알리지 않는다 — 같은 질문이 Telegram 에 여러 번 가던 것(2026-11-08 "알림이 너무 많다").
+        # 사람이 꼭 다시 봐야 할 만큼 바뀌었으면 --notify.
+        renotify = bool(getattr(a, "notify", False)) or not j.get("reported")
+        j.update(result_text=body, task=text, reported=not renotify, armed=not busy, keep=bool(getattr(a, "keep", False))); save(j)
         print(f"질문 고침 [{j['id']}] {addr}"); return
     jid = new_jid()
     j = {"id": jid, "kind": "ask", "armed": not busy, "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
@@ -323,7 +326,11 @@ def fmt(j, with_result=False):
         body.append(f"  exit {j['hc']['exit_code']}")
     if with_result:
         if j.get("result_text"):
-            body.append("  결과:"); body += ["    " + l for l in j["result_text"].splitlines()[:30]]
+            # 결정이 필요한 질문은 판단할 만큼(30줄), 완료 보고는 머리 8줄 + 전문 위치만 — 알림이 길고 많던 것(2026-11-08)
+            lines = j["result_text"].splitlines(); cap = 30 if ph == "question" else 8
+            body.append("  결과:"); body += ["    " + l for l in lines[:cap]]
+            if len(lines) > cap:
+                body.append(f"    … 전문: fleet-jobs result {j['id']}")
         elif ph == "dialog":
             body.append("  화면:"); body += ["    " + l for l in j.get("dialog", "").splitlines()]
             body.append(f"  → 사람이 처리: hc keys {j['address']} down enter  (또는 fleet-jobs stop {j['id']})")
@@ -556,7 +563,7 @@ def main():
     r = sp.add_parser("result"); r.add_argument("id"); r.set_defaults(f=cmd_result)
     se = sp.add_parser("send"); se.add_argument("id"); se.add_argument("message"); se.set_defaults(f=cmd_send)
     st = sp.add_parser("stop"); st.add_argument("id"); st.set_defaults(f=cmd_stop)
-    ak = sp.add_parser("ask"); ak.add_argument("--on"); ak.add_argument("--terminal", required=True); ak.add_argument("--project"); ak.add_argument("--name"); ak.add_argument("--keep", action="store_true", help="터미널이 다시 일해도 저절로 닫지 않는다(작업자를 막지 않는 결정)"); ak.add_argument("question"); ak.set_defaults(f=cmd_ask)
+    ak = sp.add_parser("ask"); ak.add_argument("--on"); ak.add_argument("--terminal", required=True); ak.add_argument("--project"); ak.add_argument("--name"); ak.add_argument("--notify", action="store_true", help="고쳐 올릴 때 Telegram 으로 다시 알린다(기본: 조용히 고침)"); ak.add_argument("--keep", action="store_true", help="터미널이 다시 일해도 저절로 닫지 않는다(작업자를 막지 않는 결정)"); ak.add_argument("question"); ak.set_defaults(f=cmd_ask)
     u = sp.add_parser("unreported"); u.set_defaults(f=cmd_unreported)
     c = sp.add_parser("clean"); c.add_argument("--age", type=float, default=6); c.add_argument("--quiet", action="store_true"); c.set_defaults(f=cmd_clean)
     pj = sp.add_parser("projects"); pj.add_argument("--json", action="store_true"); pj.set_defaults(f=cmd_projects)
