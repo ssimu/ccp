@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""fleet-link-heal — 관문의 hc 원격 줄이 멈췄으면 다시 잇는다(관문 macmini 의 launchd 가 5분마다).
+
+멈춤의 모양(2026-11-08·11-09 두 번 실측): `hc machine ls` 는 connected 인데 `hc get <기계>/…` 가
+"<기계> didn't answer within 30 s" 로 끝난다. ssh 자체는 0.3초에 붙는다. 그 기계로 가는
+`ssh -S … -T <기계> … herdr-core connect` 프로세스가 몇 시간째 살아 있으면서 응답이 없다.
+그 프로세스만 끝내면 hc 가 몇 초 안에 새로 잇는다(양쪽 터미널은 그대로 산다).
+
+판단: hc exec --on <기계> /usr/bin/true 가 40초 안에 안 끝나고, 같은 기계로 그냥 ssh 는 붙을 때만 끊는다
+(기계가 꺼졌거나 망이 끊긴 경우엔 손대지 않는다). 기록: ~/.local/state/fleet-link-heal.log
+  fleet-link-heal            # 한 번 점검(멈춘 줄만 다시 잇는다)
+  fleet-link-heal --dry-run  # 무엇을 끊을지 보기만
+"""
+import datetime
+import json
+import os
+import subprocess
+import sys
+
+HC = os.path.expanduser("~/.local/bin/hc")
+LOG = os.path.expanduser("~/.local/state/fleet-link-heal.log")
+
+
+def log(msg):
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    line = f"{datetime.datetime.now().isoformat(timespec='seconds')} {msg}"
+    print(line)
+    with open(LOG, "a") as f:
+        f.write(line + "\n")
+
+
+def run(args, timeout):
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout + p.stderr
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+
+
+def machines():
+    rc, out = run([HC, "machine", "ls", "--json"], 20)
+    try:
+        return [m for m in json.loads(out).get("machines", []) if m.get("state") == "connected"]
+    except (ValueError, AttributeError):
+        return []
+
+
+def link_pids(target):
+    rc, out = run(["pgrep", "-f", f"ssh -S .* -T {target} .*herdr-core"], 10)
+    return [int(x) for x in out.split() if x.isdigit()] if rc == 0 else []
+
+
+def main():
+    dry = "--dry-run" in sys.argv
+    for m in machines():
+        name, target = m["name"], m.get("target") or m["name"]
+        rc, out = run([HC, "exec", "--on", name, "/usr/bin/true"], 40)
+        if rc == 0:
+            continue
+        ok_ssh, _ = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", target, "true"], 15)
+        if ok_ssh != 0:
+            log(f"{name}: hc 응답 없음, ssh 도 안 붙음 — 기계·망 문제라 손대지 않음 ({out.strip()[:80]})")
+            continue
+        pids = link_pids(target)
+        if not pids:
+            log(f"{name}: hc 응답 없음, ssh 는 붙음, 끊을 줄 프로세스 없음 ({out.strip()[:80]})")
+            continue
+        if dry:
+            log(f"{name}: [보기만] 멈춘 줄 {pids} 을 끊을 것")
+            continue
+        for pid in pids:
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass
+        rc2 = None
+        for _ in range(6):
+            rc2, _ = run([HC, "exec", "--on", name, "/usr/bin/true"], 30)
+            if rc2 == 0:
+                break
+        log(f"{name}: 멈춘 줄 {pids} 끊음 → {'다시 붙음' if rc2 == 0 else '아직 안 붙음'}")
+
+
+if __name__ == "__main__":
+    main()
