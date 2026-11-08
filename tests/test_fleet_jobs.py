@@ -274,3 +274,15 @@ def test_two_asks_same_second_get_distinct_ids(board, monkeypatch):
     js = _ask("둘째 질문", terminal="t5c", project="kbds")
     assert len(js) == 2 and len({j["id"] for j in js}) == 2
     assert {j["project"] for j in js} == {"boneage", "kbds"}
+
+
+def test_ask_keep_survives_terminal_working(board):
+    # 마스터가 작업자를 막지 않는 결정을 대신 올린 것(--keep)은 터미널이 다시 일해도 닫히지 않는다(2026-11-08:
+    # 작업자가 다른 일로 바로 돌아가 boneage·kbds 질문이 '컴퓨터에서 답함'으로 저절로 닫혔다)
+    import argparse
+    fj.cmd_ask(argparse.Namespace(on="mbp2", terminal="t60", project="boneage", name=None, question="메일 보낼까?", keep=True))
+    j = [x for x in fj.all_jobs() if x.get("kind") == "ask"][0]
+    board["status"] = "done"; assert fj.phase(j) == "question"
+    board["status"] = "working"; assert fj.phase(j) == "question"
+    fj.cmd_send(argparse.Namespace(id=j["id"], text="보내", message="보내"))
+    assert fj.load(j["id"])["phase"] != "question"
