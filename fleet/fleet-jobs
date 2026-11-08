@@ -21,7 +21,7 @@ J = 등록부의 프로젝트 이름 — 기계·폴더·프로필·codex 프로
 M = local(이 Mac) 또는 `hc machine ls` 의 이름. 실행은 각 Mac 의 데스크톱 core 의 hc 터미널에서 ~/.local/bin/fleet-job-run 이 한다.
 작업 기록: ~/.local/share/fleet-jobs/<id>.json (이 Mac).  결과: 대상 Mac 의 ~/.local/share/fleet-jobs/<id>.result.md
 """
-import json, os, subprocess, sys, time, datetime, argparse, shlex
+import json, os, re, subprocess, sys, time, datetime, argparse, shlex
 
 HOME = os.path.expanduser("~")
 HC = os.path.join(HOME, ".local/bin/hc")
@@ -150,6 +150,23 @@ def hc_json(*args, timeout=60):
 def machines():
     d = hc_json("machine", "ls")
     return {m["name"]: m.get("state") for m in d.get("machines", [])}
+
+
+def link_ok(machine, timeout=15):
+    """원격 머신 hc 연결이 실제로 답하나. 'connected' 인데 답이 없을 때가 있다(2026-11-08 macmini→old-mbp,
+    14:29 에 연 연결이 23시에 멈춤 — SSH 는 살아 있어 ServerAlive 로 안 잡힘). 그러면 그 머신으로 가는 hc 의 ssh 를
+    끊는다 — hc 가 곧 다시 붙고, 그 머신의 터미널은 그대로 돈다. 다시 물어 답하면 True."""
+    if machine == "local":
+        return True
+    for attempt in (0, 1):
+        p = hc("exec", "--on", machine, "true", timeout=timeout)
+        if p.returncode == 0:
+            return True
+        if attempt == 0:
+            pat = r"ssh -S .*herdr-core.* -T %s " % re.escape(machine)
+            subprocess.run(["pkill", "-f", pat], capture_output=True)
+            time.sleep(6)
+    return False
 
 
 def on(machine):
@@ -351,6 +368,8 @@ def cmd_dispatch(a):
         sys.exit(f"없는 머신: {m} (가능: local, {', '.join(ms)})")
     if m != "local" and ms[m] != "connected":
         sys.exit(f"{m} 는 지금 {ms[m]} 상태라 투입할 수 없다")
+    if not link_ok(m):
+        sys.exit(f"{m} 의 hc 연결이 답하지 않는다(다시 붙여 봐도) — 그 Mac 의 전원·네트워크를 본다")
     r0 = settle(r0, conf, pick_remote(conf))
     profile, cwd, agent, cxp = r0["profile"], r0["cwd"], r0["agent"], r0["codex_profile"]
     # 허용 폴더 밖으로는 투입하지 않는다 — 투입된 작업은 권한 확인 없이 돌기 때문에 범위를 폴더로 묶는다.
