@@ -45,3 +45,11 @@ def test_too_old_skipped():
     old = dict(R("a", "10", "stale"), age=7 * 3600)
     best, rows = fp.choose([old, dict(R("b", "60"), age=10)], exclude=[], max_pct=80)
     assert best["profile"] == "b" and rows[0]["skip"].startswith("사용량 낡음")
+
+
+def test_switch_only_when_5pct_left():
+    # 주간 94% 는 아직 쓴다, 95% 이상(남은 양 5% 이하)이면 넘긴다
+    best, _ = fp.choose([R("a", "94"), R("b", "96")], exclude=[], max_pct=95)
+    assert best["profile"] == "a"
+    best, rows = fp.choose([R("a", "95")], exclude=[], max_pct=95)
+    assert best is None and "95%" in rows[0]["skip"]

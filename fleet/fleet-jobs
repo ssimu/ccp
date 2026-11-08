@@ -96,7 +96,7 @@ def settle(r0, conf, pick):
 def pick_remote(conf):
     """대상 Mac 에서 fleet-pick 을 돌린다(hc 경로, 키체인 열림)."""
     excl = ",".join(conf.get("exclude_profiles", ["imok"]))
-    mx = str(conf.get("max_weekly_pct", 80))
+    mx = str(conf.get("max_weekly_pct", 95))
     def pick(machine, agent):
         cmd = f"~/.local/bin/fleet-pick {agent} --exclude {shlex.quote(excl)} --max {mx}"
         # 관문 자신도 hc(데스크톱 core)로 — Hermes 는 SSH 로 들어오므로 여기서 바로 돌리면 키체인이 잠겨 사용량을 못 읽는다(2026-11-08).

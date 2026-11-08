@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fleet-pick claude|codex [--exclude a,b] [--max 80] — 이 Mac 에서 주간 사용량이 가장 낮은 계정(프로필)을 고른다.
+"""fleet-pick claude|codex [--exclude a,b] [--max 95] — 이 Mac 에서 주간 사용량이 가장 낮은 계정(프로필)을 고른다.
 
 fleet-jobs 가 --profile auto 로 투입할 때 대상 Mac 의 hc 경로로 부른다(키체인이 열린 데스크톱 core).
 한도는 계정마다이고 프로필 이름은 Mac 마다 다르므로, 그 Mac 에서 그 Mac 의 프로필을 본다.
@@ -40,8 +40,8 @@ def choose(rows, exclude, max_pct):
             r["skip"] = f"상태 {r.get('state') or '?'}"
         elif w is None:
             r["skip"] = "사용량 모름"
-        elif w > max_pct:
-            r["skip"] = f"주간 {w}% > {max_pct}%"
+        elif w >= max_pct:   # 남은 양이 (100-max)% 이하이면 다른 계정으로 넘긴다
+            r["skip"] = f"주간 {w}% ≥ {max_pct}%"
         elif s is not None and s >= SESSION_FULL:
             r["skip"] = f"5시간 창 {s}%"
         else:
@@ -93,7 +93,7 @@ def main():
     ap = argparse.ArgumentParser(prog="fleet-pick")
     ap.add_argument("agent", choices=["claude", "codex"])
     ap.add_argument("--exclude", default="imok")
-    ap.add_argument("--max", type=int, default=80)
+    ap.add_argument("--max", type=int, default=95)
     a = ap.parse_args()
     excl = [x for x in a.exclude.split(",") if x]
     rows = list(claude_rows(excl) if a.agent == "claude" else codex_rows())
