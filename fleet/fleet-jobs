@@ -453,6 +453,10 @@ def clear_result(j):
 
 
 def cmd_send(a):
+    if a.message == "-":           # 긴 답은 stdin 으로 — '-' 한 글자가 그대로 가던 사고(2026-11-08) 방지
+        a.message = sys.stdin.read().strip()
+        if not a.message:
+            sys.exit("보낼 내용이 비었다")
     j = load(a.id)
     if j.get("kind") == "ask":
         if ask_phase(j) != "question":

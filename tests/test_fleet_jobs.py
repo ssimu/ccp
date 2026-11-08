@@ -255,3 +255,11 @@ def test_reask_on_busy_terminal_rearms(board):
     board["status"] = "working"               # 마스터가 다른 지시를 보낸 직후 같은 질문을 다시 올렸다
     j = _ask("다시 올림")[0]
     assert j["armed"] is False and fj.phase(j) == "question"
+
+
+def test_send_reads_stdin_dash(board, monkeypatch):
+    import argparse, io
+    j = _ask()[0]
+    monkeypatch.setattr("sys.stdin", io.StringIO("긴 답\n둘째 줄\n"))
+    fj.cmd_send(argparse.Namespace(id=j["id"], message="-"))
+    assert board["sent"] == [("mbp2/t13", "긴 답\n둘째 줄")]
