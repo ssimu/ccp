@@ -180,6 +180,15 @@ def save(j):
     json.dump(j, open(os.path.join(REG, j["id"] + ".json"), "w"), ensure_ascii=False, indent=1)
 
 
+def new_jid():
+    """j<날짜>-<시각>. 같은 초에 이미 있으면 -2, -3 … 을 붙인다 — 한 초에 두 건이면 앞 건이 덮어써지던 것(2026-11-08)."""
+    base = now().strftime("j%y%m%d-%H%M%S")
+    jid, n = base, 2
+    while os.path.exists(os.path.join(REG, jid + ".json")):
+        jid, n = f"{base}-{n}", n + 1
+    return jid
+
+
 def all_jobs():
     os.makedirs(REG, exist_ok=True)
     return [json.load(open(os.path.join(REG, f))) for f in sorted(os.listdir(REG)) if f.endswith(".json")]
@@ -270,7 +279,7 @@ def cmd_ask(a):
     if j:      # 같은 터미널에 열린 질문이 있으면 새로 만들지 않고 고쳐서 다시 알린다(일하는 중이면 다시 쉴 때까지 자동 닫힘 보류)
         j.update(result_text=body, task=text, reported=False, armed=not busy); save(j)
         print(f"질문 고침 [{j['id']}] {addr}"); return
-    jid = now().strftime("j%y%m%d-%H%M%S")
+    jid = new_jid()
     j = {"id": jid, "kind": "ask", "armed": not busy, "name": a.name or (a.project or addr), "project": a.project, "agent": "claude",
          "machine": m, "profile": "대화형", "cwd": (g.get("foreground") or {}).get("cwd") or g.get("cwd") or "", "task": text,
          "address": addr, "result": "", "result_text": body, "created_at": now().isoformat(), "phase": "question", "reported": False}
@@ -342,7 +351,7 @@ def cmd_dispatch(a):
     task = sys.stdin.read() if a.task == "-" else a.task
     if not task.strip():
         sys.exit("작업문이 비었다")
-    jid = now().strftime("j%y%m%d-%H%M%S")
+    jid = new_jid()
     name = a.name or jid
     rdir = os.path.join(HOME, ".local/share/fleet-jobs")   # hc file/exec 는 '~' 를 풀지 않는다 — 절대 경로(네 Mac 모두 /Users/swh)
     task_path = f"{rdir}/{jid}.task"

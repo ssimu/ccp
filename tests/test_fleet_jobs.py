@@ -263,3 +263,14 @@ def test_send_reads_stdin_dash(board, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO("긴 답\n둘째 줄\n"))
     fj.cmd_send(argparse.Namespace(id=j["id"], message="-"))
     assert board["sent"] == [("mbp2/t13", "긴 답\n둘째 줄")]
+
+
+def test_two_asks_same_second_get_distinct_ids(board, monkeypatch):
+    # 같은 초에 다른 터미널 두 곳에서 질문을 올리면 id 가 같아 첫 질문이 덮어써지던 것(2026-11-08 실측)
+    import datetime
+    t = datetime.datetime(2026, 11, 8, 14, 9, 21)
+    monkeypatch.setattr(fj, "now", lambda: t)
+    _ask("첫 질문", terminal="t60", project="boneage")
+    js = _ask("둘째 질문", terminal="t5c", project="kbds")
+    assert len(js) == 2 and len({j["id"] for j in js}) == 2
+    assert {j["project"] for j in js} == {"boneage", "kbds"}
