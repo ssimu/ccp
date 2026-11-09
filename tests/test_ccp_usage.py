@@ -331,3 +331,20 @@ def test_parse_주간만_있고_세션_줄이_없으면_세션은_빈칸_미보�
     text = "Current week (all models): 25% used · resets Sep 14 at 3pm (Asia/Seoul)\n"
     f = fields(ccp_usage.parse(text, NOW))
     assert f[0] == "25" and f[2] == "" and f[3] == "" and f[6] == "ok"
+
+
+def test_background_refresh_waits_long_enough_for_a_loaded_mac(monkeypatch, tmp_path):
+    # 2026-11-09 wooui: claude -p /usage 가 18~37초 걸리는데 뒤 갱신은 20초에서 끊어 캐시가 하루 넘게 멈춰 있었다.
+    # 뒤 갱신은 사람이 기다리지 않으므로 넉넉히 기다린다.
+    import ccp_usage
+    monkeypatch.setenv("CCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(ccp_usage, "logged_in", lambda d: True)
+    monkeypatch.setattr(ccp_usage, "keychain_locked", lambda: False)
+    seen = []
+    def fake_fetch(d, timeout=20):
+        seen.append(timeout)
+        return "Current week (all models): 7% used\n"
+    monkeypatch.setattr(ccp_usage, "fetch", fake_fetch)
+    ccp_usage.refresh("/x/p")
+    assert seen and seen[0] >= 60
+    assert ccp_usage.read_cache("/x/p")[0][0] == "7"

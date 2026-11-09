@@ -154,6 +154,7 @@ def parse(text, now=None):
     return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
 
 
+REFRESH_TIMEOUT = 90   # 초. 뒤 갱신은 사람이 기다리지 않는다 — 2026-11-09 wooui(부하 큰 Mac)에서 /usage 가 18~37초 걸려 20초 제한이면 매번 실패, 캐시가 하루 넘게 멈췄다
 STALE_AFTER = 1800   # 초. 이 넘게 묵은 스냅숏만 '낡음' 표시 — 주간 한도는 느리게 움직이므로 5분은 너무 공격적이었다(전부 낡음으로 떠서 추천·그래프에서 빠짐)
 
 
@@ -189,13 +190,13 @@ def fetch(profile_dir, timeout=20):
         return ""
 
 
-def probe(profile_dir, tries=2):
+def probe(profile_dir, tries=2, timeout=None):
     if not logged_in(profile_dir):
         return "\t".join([""] * 6 + ["nologin"] + [""] * 5)
     # 사용량 API 가 가끔 실패한다. 그때 claude 는 오류 없이 한도 줄(Current session/week)만 빼고 출력하므로
     # parse 가 fail 을 낸다. 대개 곧바로 다시 부르면 된다 — 한 번 더 시도한다.
     for _ in range(tries):
-        line = parse(fetch(profile_dir))
+        line = parse(fetch(profile_dir) if timeout is None else fetch(profile_dir, timeout=timeout))
         if line.split("\t")[6] != "fail":
             break
         # Recent CLI builds can refresh this file without printing /usage.
@@ -312,7 +313,7 @@ def refresh(profile_dir):
         lock.truncate()
         lock.write(str(time.time()))
         lock.flush()
-        save(profile_dir, probe(profile_dir, tries=1))
+        save(profile_dir, probe(profile_dir, tries=1, timeout=REFRESH_TIMEOUT))
 
 
 def save(profile_dir, line):

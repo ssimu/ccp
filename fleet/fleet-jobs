@@ -100,8 +100,9 @@ def pick_remote(conf):
     def pick(machine, agent):
         cmd = f"~/.local/bin/fleet-pick {agent} --exclude {shlex.quote(excl)} --max {mx}"
         # 관문 자신도 hc(데스크톱 core)로 — Hermes 는 SSH 로 들어오므로 여기서 바로 돌리면 키체인이 잠겨 사용량을 못 읽는다(2026-11-08).
-        # 낡은 사용량을 다시 받으면 부하 큰 Mac 은 1분 가까이 걸린다 → 120초.
-        p = hc("exec", *on(machine), "zsh", "-lc", cmd, timeout=120)
+        # 낡은 사용량을 다시 받으면 부하 큰 Mac 은 1~2분 걸린다(fleet-pick 은 한 계정 50초, 동시 3개) → 180초.
+        # hc exec 는 따로 60초에 끊는다(2026-11-09 wooui: 'timed out after 61135 ms') — --timeout 을 꼭 같이 준다.
+        p = hc("exec", *on(machine), "--timeout", "170", "zsh", "-lc", cmd, timeout=180)
         line = next((l for l in reversed(p.stdout.splitlines()) if l.startswith("{")), "")
         return json.loads(line) if line else None
     return pick
