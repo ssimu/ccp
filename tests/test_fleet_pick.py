@@ -53,3 +53,26 @@ def test_switch_only_when_5pct_left():
     assert best["profile"] == "a"
     best, rows = fp.choose([R("a", "95")], exclude=[], max_pct=95)
     assert best is None and "95%" in rows[0]["skip"]
+
+
+def M(profile, weekly, model, name="Fable", **kw):
+    return dict(R(profile, weekly, **kw), model=model, model_name=name)
+
+
+def test_model_limit_binds_choice():
+    # 2026-11-09: 주간은 39% 남았는데 Fable 은 0% 남은 계정을 고르면 작업이 바로 막힌다 — 두 한도 중 빠듯한 쪽으로 견준다
+    best, rows = fp.choose([M("team", "61", "100"), M("ra", "41", "77"), M("dr", "30", "93")], exclude=[], max_pct=95)
+    assert best["profile"] == "ra"          # dr 는 주간이 더 남았지만 Fable 이 7% 뿐, ra 는 23%
+    why = {r["profile"]: r["skip"] for r in rows}
+    assert why["team"].startswith("Fable")
+
+
+def test_all_model_exhausted_still_picks_by_weekly():
+    # 모든 계정의 Fable 이 바닥이면 다른 모델은 쓸 수 있으니 주간으로 고르되 표시한다(대체 계정으로 떨어지지 않게)
+    best, rows = fp.choose([M("a", "61", "100"), M("b", "40", "99")], exclude=[], max_pct=95)
+    assert best["profile"] == "b" and "Fable" in best["note"]
+
+
+def test_missing_model_value_means_weekly_only():
+    best, _ = fp.choose([M("a", "50", ""), M("b", "40", "")], exclude=[], max_pct=95)
+    assert best["profile"] == "b"

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""fleet-pick claude|codex [--exclude a,b] [--max 95] — 이 Mac 에서 주간 사용량이 가장 낮은 계정(프로필)을 고른다.
+"""fleet-pick claude|codex [--exclude a,b] [--max 95] — 이 Mac 에서 여유가 가장 큰 계정(프로필)을 고른다.
+주간 전체와 모델 전용 주간 한도(Fable 등) 중 빠듯한 쪽으로 견준다. 모델 한도가 --max 이상이면 건너뛰되,
+모든 계정이 그렇다면 주간으로 고르고 note 에 적는다.
 
 fleet-jobs 가 --profile auto 로 투입할 때 대상 Mac 의 hc 경로로 부른다(키체인이 열린 데스크톱 core).
 한도는 계정마다이고 프로필 이름은 Mac 마다 다르므로, 그 Mac 에서 그 Mac 의 프로필을 본다.
   claude: ccp_usage.menu (저장된 스냅숏 — 기다리지 않는다. 낡았으면 뒤에서 갱신을 건다)
   codex:  ccp_codex.probe (app-server 로 지금 값)
-출력: JSON {"agent", "profile"(없으면 null), "weekly", "candidates":[{profile, weekly, session, state, skip}]}
+출력: JSON {"agent", "profile"(없으면 null), "weekly", "model_name", "model", "note",
+            "candidates":[{profile, weekly, session, model_name, model, state, skip}]}
 """
 import argparse
 import glob
@@ -28,7 +31,7 @@ def _int(s):
 
 def choose(rows, exclude, max_pct):
     """후보 줄들에서 고른다. 순수 함수 — 테스트 대상. (고른 줄 또는 None, 이유를 붙인 줄들)"""
-    out, ok = [], []
+    out, ok, model_out = [], [], []
     for r in rows:
         r = dict(r)
         w, s = _int(r.get("weekly")), _int(r.get("session"))
@@ -44,12 +47,26 @@ def choose(rows, exclude, max_pct):
             r["skip"] = f"주간 {w}% ≥ {max_pct}%"
         elif s is not None and s >= SESSION_FULL:
             r["skip"] = f"5시간 창 {s}%"
+        elif _int(r.get("model")) is not None and _int(r["model"]) >= max_pct:
+            # 모델 전용 주간 한도(Fable 등). 주간이 남아도 그 모델로는 곧 막힌다(2026-11-09)
+            r["skip"] = f"{r.get('model_name') or '모델'} {_int(r['model'])}% ≥ {max_pct}%"
+            model_out.append(r)
         else:
             r["skip"] = ""
             ok.append(r)
         out.append(r)
-    ok.sort(key=lambda r: (_int(r["weekly"]), r.get("state") != "ok", r["profile"]))
-    return (ok[0] if ok else None), out
+
+    def tight(r):   # 두 한도 중 빠듯한 쪽
+        return max(_int(r["weekly"]), _int(r.get("model")) or 0)
+    ok.sort(key=lambda r: (tight(r), _int(r["weekly"]), r.get("state") != "ok", r["profile"]))
+    if ok:
+        return ok[0], out
+    if model_out:
+        # 모든 후보의 모델 한도가 바닥이면 다른 모델은 쓸 수 있으니 주간으로 고른다 — 대체 계정(대개 똑같이 바닥)으로 떨어지지 않게
+        model_out.sort(key=lambda r: (_int(r["weekly"]), r.get("state") != "ok", r["profile"]))
+        best = dict(model_out[0], note=f"모든 계정 {model_out[0].get('model_name') or '모델'} 한도 소진 — 주간으로 고름")
+        return best, out
+    return None, out
 
 
 def claude_rows(exclude=()):
@@ -74,7 +91,7 @@ def claude_rows(exclude=()):
             line = ccp_usage.parse(ccp_usage.fetch(d, timeout=50))
             if line.split("\t")[6] == "ok":
                 ccp_usage.save(d, line); f, age = line.split("\t"), 0
-        return {"profile": name, "weekly": f[0], "session": f[2], "state": f[6], "age": age}
+        return {"profile": name, "weekly": f[0], "session": f[2], "model_name": f[4], "model": f[5], "state": f[6], "age": age}
 
     with ThreadPoolExecutor(max_workers=3) as ex:
         yield from ex.map(one, dirs)
@@ -100,7 +117,8 @@ def main():
     rows = list(claude_rows(excl) if a.agent == "claude" else codex_rows())
     best, rows = choose(rows, excl, a.max)
     print(json.dumps({"agent": a.agent, "profile": best and best["profile"], "weekly": best and best["weekly"],
-                      "candidates": rows}, ensure_ascii=False))
+                      "model_name": best and best.get("model_name"), "model": best and best.get("model"),
+                      "note": best and best.get("note"), "candidates": rows}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

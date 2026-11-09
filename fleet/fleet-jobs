@@ -86,6 +86,10 @@ def settle(r0, conf, pick):
         got = None
     if got and got.get("profile"):
         r[key] = got["profile"]; r["picked"] = f"자동 · 주간 {got.get('weekly')}%"
+        if got.get("model"):
+            r["picked"] += f" · {got.get('model_name') or '모델'} {got['model']}%"
+        if got.get("note"):
+            r["picked"] += f" ({got['note']})"
     else:
         mc = conf.get("machines", {}).get(r["machine"], {})
         fb = (mc.get("fallback_profile") if key == "profile" else mc.get("fallback_codex_profile")) or "default"

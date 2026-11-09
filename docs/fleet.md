@@ -45,7 +45,9 @@ fleet-dispatch --project demo --agent codex "[리뷰] git diff 를 읽고 문제
 - **Codex 작업자**: `codex exec -o <결과파일>` 로 돈다. 마지막 답이 결과가 되고, 끝나면 프로세스가 나간다(그래서 `send` 는 안 된다).
   CODEX_HOME 은 등록부의 `codex_profile`(기본 `~/.codex`). brew 판 codex 를 먼저 쓴다 — 옛 단독 실행 파일은 셸 도구가 없다.
 - **계정 자동 선택**: `profile`·`codex_profile` 이 `auto`(기본)면 투입 순간 대상 Mac 에서 `fleet-pick` 이 그 Mac 의 로그인된 계정 중
-  **주간 사용량이 가장 낮은 것**을 고른다(`exclude_profiles` 제외, 주간 `max_weekly_pct`(기본 95, 남은 양 5% 이하)·5시간 창 95% 이상은 건너뜀). 고를 게 없으면
+  **여유가 가장 큰 것**을 고른다 — 주간 전체와 모델 전용 주간 한도(Fable 등) 중 빠듯한 쪽으로 견준다(`exclude_profiles` 제외,
+  주간이나 모델 한도가 `max_weekly_pct`(기본 95, 남은 양 5% 이하) 이상·5시간 창 95% 이상은 건너뜀. 모든 계정의 모델 한도가 바닥이면
+  주간으로 고르고 결과에 적는다). 고를 게 없으면
   머신의 `fallback_profile`. `--profile`/등록부로 지정한 계정이 늘 이긴다. 고른 결과는 작업 줄에 `(자동 · 주간 39%)` 로 남는다.
 - **결정 필요**: 결과 파일이 `질문:` 으로 시작하면 상태가 `question`. `send` 로 답하면 지난 결과는 `<id>.result.md.prev` 로 치워진다.
 - 사람에게 올릴 것과 스스로 답할 것의 구분은 각자 운영 규칙에 둔다(저장소에는 넣지 않는다).
