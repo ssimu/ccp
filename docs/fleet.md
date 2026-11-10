@@ -18,6 +18,7 @@ Telegram ──► Hermes(서버) ──ssh/Tailscale──► 관문 Mac: fleet
 | `fleet-dispatch` | 관문 | `fleet-jobs dispatch` 의 짧은 이름 |
 | `fleet-dispatch.example.json` | → `~/.config/ccp/fleet-dispatch.json` | 머신별 기본 프로필·작업 폴더 |
 | `ccp-fleet-status` | 관문(어느 Mac 이든) | 네 Mac 의 `ccp-recover status` 를 hc 터미널로 모아 보인다 (`--json`) |
+| `fleet-net-check` | 모든 Mac(관문은 `--all`) | 나가는 연결이 되는지, TIME_WAIT 개수, macOS 26 이상이면 부팅 일수를 본다. `fleet-report` 가 `net` 으로 싣고 Hermes 경보가 알린다 — 아래 "macOS 26: 49.7일마다 재부팅" |
 | `fleet-report` | 관문 | SSH 로 들어온 맥락에서도 안전하게 상태+한도를 JSON 으로 — Hermes 의 아침 보고·경보가 읽는다 |
 | `ccp-relogin` | 모든 Mac | `~/.config/ccp/fleet.json`(프로필↔이메일↔조직) 을 읽어 `ccp-recover login` 을 부른다. 비밀값은 화면에 안 찍는다 |
 | `hermes/` | Hermes 서버 `~/.hermes/scripts`, `~/.hermes/skills/devops/fleet-dispatch/` | `fleet.sh`(인자 안전 전달), `fleet_report.sh`, `fleet_alert.py`, `fleet_jobs_notify.sh`, 스킬 `SKILL.md` |
@@ -58,3 +59,16 @@ fleet-dispatch --project demo --agent codex "[리뷰] git diff 를 읽고 문제
 - `hc run` 의 `--cwd` 와 `hc file write` 는 `~` 를 풀지 않는다 — 절대 경로로 넘긴다(네 Mac 모두 홈이 같다는 가정).
 - 한 문자열 명령은 `--no-parent` 와 함께일 때 프로그램 이름으로 취급돼 `spawn_failed` 가 난다 → argv 로 나눠 넘긴다.
 - SSH 맥락에서 `hc wait` 가 `--timeout` 을 넘겨 안 돌아올 때가 있어 subprocess 시간제한 + 폴링으로 보완한다.
+
+## macOS 26: 49.7일마다 재부팅
+
+2026-11-11 macmini(macOS 26.3, 부팅 55일째)가 **나가는 연결만** 전부 실패했다(`connect: Can't assign requested address`).
+들어오는 ssh·웹앱은 됐고 ping 도 됐으므로 겉으로는 Wi‑Fi 문제처럼 보였지만 Wi‑Fi 재시작으로는 안 나았다.
+TIME_WAIT 35,483개가 1분 뒤에도 하나도 줄지 않았다 — 부팅 후 약 49.7일(2^32 ms)에 TCP 내부 시계가 넘쳐 TIME_WAIT 가
+만료되지 않고 쌓여 임시 포트가 바닥나는 결함이다. 같은 날 macOS 15.7(wooui, 164일)·13.7(old-mbp)은 멀쩡했다.
+관문이 이 상태가 되면 함대 투입·Codex 사용량 조회(`fleet-pick codex` 가 세 계정 모두 `fail` → 대체 `default`)도 같이 멈춘다.
+
+- **고치는 법은 재부팅뿐.** FileVault 가 켜진 Mac 은 `sudo fdesetup authrestart`(암호 두 번) 로 다시 켜면 로그인 화면 없이 데스크톱까지 올라온다.
+- **막는 법**: macOS 26 이상 Mac 은 42일 안에 한 번 재부팅한다. `fleet-net-check` 가 42일째부터, TIME_WAIT 1만 개 이상이거나
+  나가는 연결이 안 되면 경고를 내고 Hermes 함대 경보(6시간마다)가 Telegram 으로 보낸다. 관문 자신이 막혀도 Hermes 의 SSH 는 들어오므로 경보는 온다.
+

@@ -30,5 +30,12 @@ try: hosts = json.load(open("/tmp/fleet-status.json"))
 except Exception as e: hosts = {"error": str(e)}
 try: usage = json.load(open("/tmp/fleet-usage.json"))
 except Exception as e: usage = {"error": str(e)}
-print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": __import__("socket").gethostname().split(".")[0], "hosts": hosts, "usage": usage}, ensure_ascii=False))
+import os, subprocess
+# 나가는 연결 검사(macOS 26 의 49.7일 TIME_WAIT 결함 등) — 키체인이 필요 없어 hc exec 로 바로 돈다
+try:
+    net = json.loads(subprocess.run([os.path.expanduser("~/projects/ccp/fleet/fleet-net-check"), "--all", "--json"],
+                                    capture_output=True, text=True, timeout=300).stdout)
+except Exception as e:
+    net = {"error": type(e).__name__}
+print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": __import__("socket").gethostname().split(".")[0], "hosts": hosts, "usage": usage, "net": net}, ensure_ascii=False))
 PY
