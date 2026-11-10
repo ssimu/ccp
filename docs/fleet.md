@@ -68,7 +68,9 @@ TIME_WAIT 35,483개가 1분 뒤에도 하나도 줄지 않았다 — 부팅 후 
 만료되지 않고 쌓여 임시 포트가 바닥나는 결함이다. 같은 날 macOS 15.7(wooui, 164일)·13.7(old-mbp)은 멀쩡했다.
 관문이 이 상태가 되면 함대 투입·Codex 사용량 조회(`fleet-pick codex` 가 세 계정 모두 `fail` → 대체 `default`)도 같이 멈춘다.
 
-- **고치는 법은 재부팅뿐.** FileVault 가 켜진 Mac 은 `sudo fdesetup authrestart`(암호 두 번) 로 다시 켜면 로그인 화면 없이 데스크톱까지 올라온다.
+- **고치는 법은 재부팅뿐.** FileVault 가 켜진 Mac 은 자동 로그인이 안 된다 — 2026-11-11 재부팅 뒤 macmini 는 로그인 화면(`/dev/console` 이 root)에서 멈춰
+  hc core·폰 서버·디스크 자동 열기 LaunchAgent 가 안 돌았고 외장 디스크도 안 붙었다. **재부팅 뒤 사람이 데스크톱에 한 번 로그인**해야 한다(화면 공유로도 됨).
+  그사이 다른 Mac 의 hc 가 SSH 로 core 를 띄워 두므로, 로그인 뒤 그 core 를 GUI core 로 바꿔야 한다(`hc machine rm` → `hc server stop` → `launchctl bootstrap gui/…` → `hc machine add`). `fleet-net-check` 가 로그인 전 상태도 경고한다.
 - **막는 법**: macOS 26 이상 Mac 은 42일 안에 한 번 재부팅한다. `fleet-net-check` 가 42일째부터, TIME_WAIT 1만 개 이상이거나
   나가는 연결이 안 되면 경고를 내고 Hermes 함대 경보(6시간마다)가 Telegram 으로 보낸다. 관문 자신이 막히면 Tailscale 도 끊겨 Hermes 의 SSH 가 못 들어온다 — 그때는 "관문 접속 실패" 경보가 이 결함일 수 있다는 안내와 함께 간다(2026-11-11 실측). 그래서 42일째 경고가 결함보다 먼저 오는 것이 핵심이다.
 

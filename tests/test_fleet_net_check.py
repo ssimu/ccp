@@ -32,3 +32,13 @@ def test_old_macos_long_uptime_not_flagged():
 
 def test_unknown_values_do_not_crash():
     assert nc.judge("", None, None, True) == []
+
+
+def test_login_window_after_reboot_is_flagged():
+    # 2026-11-11 macmini: 재부팅 뒤 /dev/console 이 root — 데스크톱 로그인 전
+    w = nc.judge("26.3", 0.0, 0, True, "root")
+    assert len(w) == 1 and "데스크톱 로그인 안 됨" in w[0]
+
+
+def test_logged_in_user_is_quiet():
+    assert nc.judge("26.3", 0.0, 0, True, "swh") == []
