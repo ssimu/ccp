@@ -8,7 +8,9 @@ try:
     out = subprocess.run(["bash", os.path.expanduser("~/.hermes/scripts/fleet_report.sh")], capture_output=True, text=True, timeout=420).stdout
     d = json.loads(out)
 except Exception as e:
-    print("⚠️ 함대 관문(FLEET_GATEWAY, 2026-11-08 부터 macmini) 접속 실패: " + type(e).__name__); sys.exit(0)
+    # 관문이 나가는 연결을 못 하면(macOS 26 의 49.7일 TIME_WAIT 결함) Tailscale 도 끊겨 SSH 조차 안 들어온다(2026-11-11).
+    print("⚠️ 함대 관문(FLEET_GATEWAY, 2026-11-08 부터 macmini) 접속 실패: " + type(e).__name__ +
+          "\n  전원·망이 멀쩡한데 이러면 macOS 26 장기 가동 결함일 수 있다 — LAN 에서 `fleet-net-check` 확인, 맞으면 `sudo fdesetup authrestart`"); sys.exit(0)
 alerts = []
 for h in d.get("hosts", []):
     if isinstance(h, dict) and h.get("profiles") is not None:
