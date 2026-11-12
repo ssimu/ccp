@@ -36,7 +36,7 @@ M = {
     "weekly_short":   ("주", "wk", "週", "周"),        # 상태줄 짧은 라벨
     "session_short":  ("5h", "5h", "5h", "5h"),
     "usage_estimated": ("리셋 지남 · 추정", "reset passed · estimated", "リセット経過 · 推定", "已过重置 · 估算"),
-    "usage_stale":     ("stale · 낡은 값", "stale", "stale · 古い値", "stale · 旧值"),
+    "usage_stale":     ("낡은 값", "stale", "古い値", "旧值"),
     "nologin":        ("미로그인", "not logged in", "未ログイン", "未登录"),
     "query_fail":     ("조회 실패", "lookup failed", "取得失敗", "查询失败"),
     "keychain_locked":("키체인 잠김 — 데스크톱 터미널에서", "keychain locked — use a desktop terminal", "キーチェーンがロック — デスクトップの端末で", "钥匙串已锁定 — 请用桌面终端"),
