@@ -4,6 +4,7 @@
 #   git clone https://github.com/ssimu/ccp.git ~/projects/ccp
 #   ~/projects/ccp/install.sh                 # ccp + Claude Code 상태줄(현재 계정·남은 한도)
 #   ~/projects/ccp/install.sh --no-statusline # 상태줄은 건드리지 않음
+#   ~/projects/ccp/install.sh --no-usage-refresh # 주기 갱신 끔 (메뉴/상태줄 갱신은 유지)
 #
 # 하는 일:
 #   1. ~/.zshrc 에 ccp.zsh 를 source 하는 한 줄 (clone 한 위치를 그대로 쓴다)
@@ -21,12 +22,14 @@ CFG="${CCP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ccp}"
 ZRC="${ZDOTDIR:-$HOME}/.zshrc"
 CC="$HOME/.claude"
 STATUSLINE=1
+USAGE_REFRESH=1
 NOTES=()
 
 for a in "$@"; do
     case "$a" in
         --statusline) STATUSLINE=1 ;;     # 기본값. 예전 호출과의 호환용
         --no-statusline) STATUSLINE=0 ;;
+        --no-usage-refresh) USAGE_REFRESH=0 ;;
         -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
         *) printf '모르는 옵션: %s\n' "$a" >&2; exit 1 ;;
     esac
@@ -98,6 +101,22 @@ if command -v zsh >/dev/null 2>&1; then
 else
     note "zsh 가 없어 프로필 디렉터리를 만들지 못했다. zsh 설치 후 'ccp-sync'."
 fi
+
+step "4b/5  사용량 주기 갱신"
+dst="$BIN/ccp-usage-refresh"
+if [ ! -L "$dst" ] || [ "$(readlink "$dst")" != "$DIR/ccp-usage-refresh" ]; then
+    if [ -e "$dst" ] || [ -L "$dst" ]; then mv "$dst" "$dst.bak-$(date +%Y%m%d%H%M%S)"; fi
+    ln -s "$DIR/ccp-usage-refresh" "$dst"
+fi
+# config.zsh의 사용자 지정 프로필 위치도 launchd에 고정해서 넘긴다.
+REFRESH_PROFILES="${CLAUDE_PROFILES:-$HOME/.claude-profiles}"
+if command -v zsh >/dev/null 2>&1; then
+    REFRESH_PROFILES="$(CCP_CONFIG_DIR="$CFG" zsh -c 'source "$CCP_CONFIG_DIR/config.zsh"; print -r -- "${CLAUDE_PROFILES:-$HOME/.claude-profiles}"')"
+fi
+REFRESH_ARGS=(--install)
+[ "$USAGE_REFRESH" = 0 ] && REFRESH_ARGS+=(--disable)
+CCP_CONFIG_DIR="$CFG" CLAUDE_PROFILES="$REFRESH_PROFILES" python3 "$DIR/ccp_usage_agent.py" "${REFRESH_ARGS[@]}" \
+    || note "사용량 갱신 LaunchAgent 등록을 마치지 못했다. 데스크톱 터미널에서 install.sh를 다시 실행할 것."
 
 step "5/5  statusline"
 if [ "$STATUSLINE" = 1 ]; then

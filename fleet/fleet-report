@@ -13,7 +13,7 @@ dirs = [(\"default\", \"\")] + [(os.path.basename(d), d) for d in sorted(glob.gl
 for name, d in dirs:
     ccp_usage.refresh(d)            # 보고용이라 기다린다(프로필당 수 초) — 낡은 스냅숏 대신 지금 값
     f = ccp_usage.menu(d).split(\"\\t\")
-    out[\"claude\"].append({\"profile\": name, \"weekly_pct\": f[0], \"weekly_reset\": f[7], \"session_pct\": f[2], \"session_reset\": f[8], \"model\": f[4], \"model_pct\": f[5], \"state\": f[6], \"note\": f[11]})
+    out[\"claude\"].append({\"profile\": name, \"weekly_pct\": f[0], \"weekly_reset\": f[7], \"session_pct\": f[2], \"session_reset\": f[8], \"model\": f[4], \"model_pct\": f[5], \"model_reset\": ccp_usage.model_reset(f)[1], \"state\": f[6], \"note\": ccp_usage.display_note(f)})
 cdirs = [(\"default\", os.path.expanduser(\"~/.codex\"))] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.expanduser(\"~/.codex-profiles/*\"))) if os.path.isdir(d)]
 for name, d in cdirs:
     f = ccp_codex.probe(d).split(\"\\t\")

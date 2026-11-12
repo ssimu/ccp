@@ -29,7 +29,7 @@ for u in d.get("usage", {}).get("claude", []):
     if w is not None and 100 - w <= LEFT_MAX:
         alerts.append("Claude %s: 주간 %d%% 남음 (리셋 %s)" % (u["profile"], 100 - w, u.get("weekly_reset") or "?"))
     if m is not None and m >= 100:
-        alerts.append("Claude %s: %s 한도 소진 (리셋 %s)" % (u["profile"], u.get("model") or "모델", u.get("weekly_reset") or "?"))
+        alerts.append("Claude %s: %s 한도 소진 (리셋 %s)" % (u["profile"], u.get("model") or "모델", u.get("model_reset") or u.get("weekly_reset") or "?"))
 for u in d.get("usage", {}).get("codex", []):
     w = pct(u.get("weekly_pct"))
     if w is not None and 100 - w <= LEFT_MAX:

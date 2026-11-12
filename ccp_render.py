@@ -11,6 +11,7 @@ claude 프로필(CLAUDE_CONFIG_DIR)과 codex 프로필(CODEX_HOME)을 한 화면
 """
 import os,sys,unicodedata,shutil
 from ccp_i18n import t, left as i18n_left, weekday   # 표시 문구는 전부 ccp_i18n.py 에서
+from ccp_usage import normalize, model_reset, display_note, note_parts
 
 tmp=sys.argv[1]; numbered=(sys.argv[2]=='num'); cur_raw=sys.argv[3]; specs=sys.argv[4:]
 # 인자는 'tool:이름' 꼴 — claude 프로필과 codex 프로필을 한 화면에 같이 세운다.
@@ -44,9 +45,12 @@ for i,nm in enumerate(names):
     try: raw=open(os.path.join(tmp,str(i))).read().strip('\n')
     except Exception: raw=''
     p=(raw.split('\t')+['']*12)[:12]
+    if tools[i]=='claude': p=normalize(p)
+    mm,mt=model_reset(p)
     rows.append(dict(i=i,name=nm,tool=tools[i],w=gi(p[0]),wm=gi(p[1]),s=gi(p[2]),sm=gi(p[3]),
                      mn=p[4] or '',mp=gi(p[5]),st=p[6] or 'fail',wt=p[7],stt=p[8],
-                     ww=gi(p[9]) or 7*1440,sw=gi(p[10]) or 5*60,extra=p[11] or '',
+                     ww=gi(p[9]) or 7*1440,sw=gi(p[10]) or 5*60,extra=display_note(p) if tools[i]=='claude' else p[11],
+                     mm=mm,mt=mt,estimated=bool(note_parts(p)[1].get('estimated')),
                      tl=nm if tools[i]=='claude' else 'cx·'+nm))
 
 # grp 0=지금 사용 가능 1=세션만 소진(곧 풀림) 2=주간 소진 3=미로그인/실패
@@ -70,7 +74,8 @@ for r in rows:
     r['bind']=mlabel if mrem<100-w else WEEKLY
     r['bindp']=r['mp'] if r['bind']==mlabel else w
     r['flag']=r['bind']==mlabel and r['bindp']>=70     # 모델 한도가 먼저 막고 이미 빠듯할 때만 표식
-    hours=(r['wm'] if r['wm'] is not None else 7*1440)/60.0
+    r['bm']=r['mm'] if r['bind']==mlabel else r['wm']
+    hours=(r['bm'] if r['bm'] is not None else 7*1440)/60.0
     r['rate']=r['remain']/max(hours,1.0)
     r['grp']=2 if w>=100 else (1 if s>=100 else 0)
 
@@ -79,7 +84,7 @@ def key(r):
     g=r['grp']
     if g==0:
         s=r['s'] if r['s'] is not None else 0
-        return (0, 1 if s>=90 else 0, -r['rate'], -r['slack'], r['i'])   # 세션 90%↑는 곧 막히니 뒤로
+        return (0, 1 if r['st']=='stale' else 0, 1 if s>=90 else 0, -r['rate'], -r['slack'], r['i'])
     if g==1: return (1,0,r['sm'] if r['sm'] is not None else BIG,0,r['i'])
     if g==2: return (2,0,r['wm'] if r['wm'] is not None else BIG,0,r['i'])
     return (3,0,0,0,r['i'])
@@ -151,6 +156,7 @@ def rec_summary():
 
 def row_style(r):
     g=r['grp']; is_rec = r['is_rec']
+    if r['st']=='stale': return '2', True, is_rec
     if   is_rec: base='1;32'
     elif g==0:   base=''
     elif g==1:   base='33'
@@ -166,7 +172,7 @@ def hot(v,base,dim):
     return base
 def note_col(r,base):
     # 메모 색: 실제 남은 양이 적으면 붉게 — 추천이 아닌 이유가 메모에서 바로 보이게
-    if r['grp']!=0 or r['is_rec'] or r['remain'] is None: return base
+    if r['st']=='stale' or r['grp']!=0 or r['is_rec'] or r['remain'] is None: return base
     if r['remain']<=10: return '31'
     if r['remain']<=30: return '33'
     return base
@@ -178,7 +184,7 @@ def note_of(r,short,full=False):
         why=t('note_left',which=which,n=r["remain"])
         if which==mlabel and full: why+=t('note_weekly_is',w=100-(r["w"] or 0))   # 카드에서만 — 표는 칸이 좁다
         if r['remain']<=10 and r['remain']>0: why+=t('note_almost')
-        why+=t('note_reset_in',t=left(r['wm']) or t('seven_days'))
+        why+=t('note_reset_in',t=left(r['bm']) or t('seven_days'))
     if is_rec: note=t('note_rec')+' · '+why if g==0 else t('note_rec')
     elif g==0: note=why
     elif g==1: note=t('note_sess_out') + ('' if short else t('note_frees_in',t=left(r['sm']) or '?'))
@@ -187,7 +193,7 @@ def note_of(r,short,full=False):
     else:      note='— '+(t('nologin') if r['st']=='nologin' else t('query_fail'))
     if g==0 and r['mp'] is not None and r['mp']>=100:
         note+=t('note_model_out',m=mlabel)
-    if r['extra']: note+=' · '+r['extra']
+    if r['extra']: note=r['extra']+' · '+note
     if cur and r['name']==cur and r['tool']==cur_tool: note+=t('note_current')
     return note
 def name_cell(r,is_rec):
@@ -264,7 +270,9 @@ def build_table(hl_idx):
             if len(seen)>1: lines.append('')
             lines.append(C('  '+txt+'─'*max(0,LINEW-dw(txt)-2),gc))
         lines+=render_row(r, hl_idx is not None and k==hl_idx)
-        if LAYOUT=='two' and k+1<len(rows) and rows[k+1]['grp']==g: lines.append('')
+        # 좁은 화면에서 독립 모델 리셋 안내까지 들어갈 자리를 확보한다.
+        if LAYOUT=='two' and len(rows)*3+8<=ROWS_H and k+1<len(rows) and rows[k+1]['grp']==g:
+            lines.append('')
     lines.append('')
     rs=rec_summary()
     if rs: lines.append(rs)
@@ -365,11 +373,10 @@ def rst_in(m,ts,pct,room):
 def chart_note(r):
     # 차트의 메모는 짧게 — 수치는 막대가 이미 말한다. 추천 · 모델 한도가 먼저 막음 · 모델 소진 · 낡은 값 · 현재 계정만.
     if r['grp']!=0: return note_of(r,True)
-    parts=[]
+    parts=[r['extra']] if r['extra'] else []
     if r['is_rec']: parts.append(t('note_rec'))
     if r['mp'] is not None and r['mp']>=100: parts.append(t('note_model_out',m=mlabel).strip(' ·()（）'))
     elif r['flag']: parts.append(t('ch_binds',m=mlabel))
-    if r['extra']: parts.append(r['extra'])
     if cur and r['name']==cur and r['tool']==cur_tool: parts.append(t('note_current').lstrip(' ·'))
     return ' · '.join(p for p in parts if p)
 
@@ -395,12 +402,12 @@ def chart_row(r,hl):
         segs.append((cbar(rem,P['sb'],left_frac(r['sm'],r['sw']),dim)+' ','') if not hl else (pbar(rem,P['sb'],left_frac(r['sm'],r['sw']))+' ',''))
         segs.append((pctstr(rem),hot(r['s'],base,dim)))
         segs.append((' '+pad(rst_in(r['sm'],r['stt'],r['s'],P['rw2']),P['rw2'])+' '*GAP,base))
-    # 모델(Fable) — 주간과 같이 리셋되므로 눈금은 주간 것
+    # 모델(Fable)은 자기 리셋 시각으로 눈금을 그린다.
     if codex or r['mp'] is None:
         segs.append((' '*(P['mb']+1+PCTW+GAP),''))
     else:
         rem=leftpct(r['mp'])
-        segs.append((cbar(rem,P['mb'],None,dim)+' ','') if not hl else (pbar(rem,P['mb'])+' ',''))
+        segs.append((cbar(rem,P['mb'],left_frac(r['mm'],r['ww']),dim)+' ','') if not hl else (pbar(rem,P['mb'],left_frac(r['mm'],r['ww']))+' ',''))
         segs.append((pctstr(rem)+' '*GAP,hot(r['mp'],base,dim)))
     segs.append((chart_note(r),note_col(r,base)))
     return finish(segs,hl)
@@ -472,7 +479,7 @@ def timeline_lines():
         for p_,_l in ticks: axis[p_]='┼'
         w=r['w'] if r['w'] is not None else 0
         bp=r['bindp'] if r['bindp'] is not None else w
-        col='1;31' if bp>=100 else '31' if bp>=90 else '33' if bp>=70 else '32'
+        col='2' if r['st']=='stale' else '1;31' if bp>=100 else '31' if bp>=90 else '33' if bp>=70 else '32'
         if r['wm'] is None:
             line=C(' '*4+pad(cut(r['tl'],NAMEW),NAMEW)+'  ',base)+C(''.join(axis),'2')+'  '+C(t('rd_new') if w==0 else '-',base)
         else:
@@ -502,17 +509,36 @@ def build(hl_idx):
     FORCED=False
     if VIEW=='graph' and PLAN is not None:
         # 차트는 계정당 한 줄이라 거의 늘 들어간다. 타임라인까지 들어가면 같이, 아니면 차트만.
-        g=build_chart(hl_idx)
+        g=with_notices(build_chart(hl_idx))
         if len(with_timeline(g))+2<=ROWS_H: return with_timeline(g)
         if len(g)+2<=ROWS_H: return g
         FORCED=True
     elif VIEW=='graph':
         FORCED=True            # 너무 좁은 터미널 — 차트 폭이 안 나와 표(두 줄 배치)로
-    tbl=build_table(hl_idx)
+    tbl=with_notices(build_table(hl_idx), table=True)
     # 표는 범례 2행 뒤에 타임라인을 끼우고, 열 제목(3행째)은 타임라인 다음·계정 행 바로 앞에 둔다
     h=2
     tt=tbl[:1+h]+timeline_lines()+tbl[1+h:]
     return tt if len(tt)+2<=ROWS_H else tbl
+
+def with_notices(lines, table=False):
+    def append(text):
+        chunk=''
+        for ch in text:
+            if dw(chunk+ch)>COLS-1 and chunk:
+                lines.append(C(chunk, '2')); chunk=''
+            chunk+=ch
+        if chunk: lines.append(C(chunk, '2'))
+    # 폭이 좁아 메모 칸이 잘려도 낡음/추정과 관측 시각은 반드시 보인다.
+    for r in rows:
+        fixed=dw(name_cell(r,r['is_rec']))
+        if table and LAYOUT!='two':
+            fixed+=sum(dw(text) for text,_ in usage_segs(r,'',True,LAYOUT=='wide'))
+        if r['st']=='stale' and (not table or fixed+dw(r['extra'])>COLS-1):
+            append('  '+cut(r['name'], NAMEW)+' · '+r['extra'])
+        if r['mn'] and r['mt'] and r['mt']!=r['wt']:
+            append('  '+cut(r['name'], NAMEW)+' · '+r['mn']+' ↻ '+rst(r['mm'],r['mt'],r['mp']))
+    return lines
 
 def write_meta(sel,act=None):
     with open(os.path.join(tmp,'_meta'),'w') as f:

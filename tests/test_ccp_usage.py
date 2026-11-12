@@ -52,7 +52,8 @@ def test_아무것도_못_읽으면_fail():
     assert f[6] == "fail" and len(f) == 12
 
 
-def test_캐시_쓰고_읽기():
+def test_캐시_쓰고_읽기(monkeypatch):
+    monkeypatch.setattr(ccp_usage.time, "time", lambda: NOW.timestamp())
     with tempfile.TemporaryDirectory() as d:
         os.environ["CCP_CONFIG_DIR"] = d
         line = ccp_usage.parse(TEXT, NOW)
@@ -121,7 +122,7 @@ def test_menu_uses_native_snapshot_without_starting_claude(monkeypatch, tmp_path
     monkeypatch.setattr(ccp_usage, 'fetch', lambda *a, **k: (_ for _ in ()).throw(AssertionError('must not block')))
     row = ccp_usage.menu(p).split('\t')
     assert (row[0], row[2], row[4], row[5], row[6]) == ('83', '12', 'Fable', '100', 'ok')
-    assert row[11] == ''   # 신선한 스냅숏에는 메모가 없다 — stale 일 때만 'cache …'
+    assert ccp_usage.display_note(row) == ''   # 신선한 스냅숏에는 메모가 없다 — stale 일 때만 'cache …'
 
 
 def test_snapshot_from_other_account_is_rejected(monkeypatch, tmp_path):
@@ -308,8 +309,8 @@ def test_신선한_스냅숏에는_cache_메모가_없고_낡으면_붙는다(mo
             "cachedUsageUtilization": {"accountUuid": "a", "fetchedAtMs": int((time.time() - age_s) * 1000),
                                        "utilization": {"limits": [{"kind": "weekly_all", "percent": 5, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
         return ccp_usage.native_cache(str(tmp_path))[0]
-    assert snap(10)[11] == "" and snap(10)[6] == "ok"
-    assert snap(600)[11] == "" and snap(600)[6] == "ok"      # 10분은 아직 신선 — 주간 한도는 느리게 움직인다
+    assert ccp_usage.display_note(snap(10)) == "" and snap(10)[6] == "ok"
+    assert ccp_usage.display_note(snap(600)) == "" and snap(600)[6] == "ok"      # 10분은 아직 신선 — 주간 한도는 느리게 움직인다
     assert snap(3600)[11].startswith("cache ") and snap(3600)[6] == "stale"
 
 
@@ -324,7 +325,7 @@ def test_menu_는_갱신_캐시_파일이_스냅숏보다_새로우면_그쪽을
                                    "utilization": {"limits": [{"kind": "weekly_all", "percent": 50, "resets_at": "2030-01-01T00:00:00Z"}]}}}))
     ccp_usage.write_cache(str(prof), "\t".join(["12", "100", "3", "50", "Fable", "7", "ok", "01/01 00:00", "01/01 00:00", "10080", "300", ""]))
     f = fields(ccp_usage.menu(str(prof)))
-    assert f[0] == "12" and f[6] == "ok" and f[11] == ""      # 스냅숏(50%, 50분 전)이 아니라 방금 쓴 캐시(12%)
+    assert f[0] == "12" and f[6] == "ok" and ccp_usage.display_note(f) == ""      # 스냅숏(50%, 50분 전)이 아니라 방금 쓴 캐시(12%)
 
 
 def test_parse_주간만_있고_세션_줄이_없으면_세션은_빈칸_미보고():

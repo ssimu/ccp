@@ -168,13 +168,16 @@ def seg_account():
 def quota_one(label, w, window_min):
     if not w or w.get("used_percentage") is None:
         return None
-    used = int(round(w["used_percentage"]))
+    from ccp_usage import roll_window
+    used, r, estimated = roll_window(int(round(w["used_percentage"])), w.get("resets_at"), window_min)
     shown = 100 - used if CONF["percent"].lower() == "left" else used
-    r = w.get("resets_at")
     remaining = max(0, int(round((r - time.time()) / 60))) if r else None
     s = f"{label} " + bar(used, elapsed(remaining, window_min)) + C(f"{shown}%", col(used))
     if remaining is not None and yes(CONF["show_reset"]):
         s += C(" ↻" + i18n_left(remaining), DIM)
+    if estimated:
+        s += C(" · " + t("usage_estimated"), DIM)
+        s = C(re.sub(r"\033\[[0-9;]*m", "", s), DIM)
     return s
 
 
@@ -195,19 +198,9 @@ def _profile_dir():
 
 
 def _refresh_in_background():
-    """캐시가 낡았을 때 ccp_usage.py refresh 를 떼어 놓고 돌린다. 락으로 한 번만."""
-    lock = os.path.join(CFG_DIR, "cache", "refresh-" + (os.path.basename(_profile_dir().rstrip("/")) or "default") + ".lock")
-    try:
-        os.makedirs(os.path.dirname(lock), exist_ok=True)
-        if os.path.exists(lock) and time.time() - os.path.getmtime(lock) < 120:
-            return                                   # 이미 도는 중(2분 안)
-        fd = os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_TRUNC); os.close(fd)
-        # 끝나면 락을 지우도록 셸로 감싼다. 상태줄 프로세스와 분리(start_new_session).
-        cmd = f'python3 "{os.path.join(HERE, "ccp_usage.py")}" refresh "{_profile_dir()}"; rm -f "{lock}"'
-        subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True, env=dict(os.environ, CCP_CONFIG_DIR=CFG_DIR))
-    except Exception:
-        pass
+    """메뉴와 같은 launchd 경로와 프로필 락을 쓴다."""
+    import ccp_usage
+    ccp_usage.start_refresh(_profile_dir())
 
 
 def seg_model_quota():
@@ -220,21 +213,30 @@ def seg_model_quota():
         ttl = float(CONF["model_quota_ttl"]) * 60
     except Exception:
         ttl = 600
-    row, age = ccp_usage.read_cache(_profile_dir())
-    stale = row is None or age > ttl
-    if stale and yes(CONF["model_quota_bg"]) and not os.environ.get("CCP_STATUSLINE_TEST_NO_BG"):
+    row, age = ccp_usage.best_cache(_profile_dir(), model_only=True)
+    refresh_due = row is None or age > ttl or row[6] == "stale"
+    stale = row is None or age > ttl or row[6] == "stale"
+    if refresh_due and yes(CONF["model_quota_bg"]) and not os.environ.get("CCP_STATUSLINE_TEST_NO_BG"):
         _refresh_in_background()
-    if row is None or row[6] != "ok" or not row[4] or not row[5].strip().lstrip("-").isdigit():
+    if row is None or row[6] not in ("ok", "stale") or not row[4] or not row[5].strip().lstrip("-").isdigit():
         return None
     used = int(row[5])
     shown = 100 - used if CONF["percent"].lower() == "left" else used
-    # 캐시 시점의 '남은 분'에서 지난 시간을 뺀다. 낡은 캐시면 시각은 믿을 수 없으니 눈금·리셋을 생략한다.
-    remaining = max(0, int(row[1]) - int(age // 60)) if (row[1].isdigit() and not stale) else None
+    estimated = 'model' in ccp_usage.note_parts(row)[1].get('estimated', [])
+    remaining = ccp_usage.model_reset(row)[0] if not stale or estimated else None
     s = f"{row[4]} " + bar(used, elapsed(remaining, 7 * 1440)) + C(f"{shown}%", col(used))
     if remaining is not None and yes(CONF["show_reset"]):
         s += C(" ↻" + i18n_left(remaining), DIM)
+    if estimated:
+        s += C(" · " + t("usage_estimated"), DIM)
     if stale:
-        s += C("~", DIM)                              # 낡은 값 표시. 다음 렌더쯤 갱신된다
+        observed = time.time() - age
+        s += C(" cache " + time.strftime("%m/%d %H:%M", time.localtime(observed)), DIM)
+        if not estimated:
+            s += C("~", DIM)
+    if stale:
+        # 기존 막대 색을 제거한 뒤 조각 전체를 흐리게 한다.
+        s = C(re.sub(r"\033\[[0-9;]*m", "", s), DIM)
     return s
 
 

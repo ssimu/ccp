@@ -24,7 +24,9 @@ def run(conf=None, payload=PAYLOAD, lang="ko", extra_env=None, custom_script=Non
             p = Path(cfg) / "statusline.sh"; p.write_text(custom_script); p.chmod(0o755)
         env = dict(os.environ, CCP_CONFIG_DIR=cfg, CCP_LANG=lang, CLAUDE_CONFIG_DIR="/nonexistent")
         env.update(extra_env or {})
-        if cache is not None: env.pop("CLAUDE_CONFIG_DIR")      # 캐시는 기본 프로필(usage-default) 것
+        if cache is not None:
+            env.pop("CLAUDE_CONFIG_DIR")      # 캐시는 기본 프로필(usage-default) 것
+            env['HOME'] = cfg                 # native 스냅숏도 반드시 가짜 HOME만 본다
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=payload, capture_output=True, text=True, env=env)
         assert r.returncode == 0, r.stderr
         return r.stdout
@@ -184,3 +186,27 @@ def test_설정_파일이_없어도_기본으로_돈다():
         env = dict(os.environ, CCP_CONFIG_DIR=cfg, CCP_LANG="ko", CLAUDE_CONFIG_DIR="/nonexistent", CCP_STATUSLINE_TEST_NO_BG="1")
         r = subprocess.run(["bash", str(ROOT / "statusline.sh")], input=PAYLOAD, capture_output=True, text=True, env=env)
         assert "주 " in plain(r.stdout)
+
+
+def test_model_uses_its_own_tick_and_reset():
+    r = CACHE.split('\t')
+    r[11] = 'ccp:v1:' + json.dumps({'resets': {'model': time.time() + 7 * 86400}})
+    out = plain(run('segments = model_quota\nshow_reset = yes\n', cache='\t'.join(r)))
+    assert out == 'Fable ┃██░░░ 47% ↻7일0시간'
+
+
+def test_model_rollover_shows_estimate_and_new_window():
+    r = CACHE.split('\t')
+    r[11] = 'ccp:v1:' + json.dumps({'resets': {'model': time.time() - 3600}})
+    out = plain(run('segments = model_quota\nshow_reset = yes\n', cache='\t'.join(r)))
+    assert 'Fable ┃░░░░░ 0% ↻6일23시간' in out and '추정' in out
+    assert '47%' not in out
+
+
+def test_live_week_and_session_rollover_share_rules():
+    p = json.loads(PAYLOAD)
+    for w in p['rate_limits'].values():
+        w['resets_at'] = time.time() - 60
+    out = plain(run('segments = weekly session\nbar = 0\nshow_reset = yes\n', json.dumps(p)))
+    assert '주 0% ↻6일23시간' in out and '5h 0% ↻4시간59분' in out
+    assert out.count('추정') == 2

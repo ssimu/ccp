@@ -30,7 +30,7 @@ git clone https://github.com/ssimu/ccp.git ~/projects/ccp
 source ~/.zshrc
 ```
 
-설치 스크립트가 하는 일은 `~/.zshrc`에 한 줄 추가하고 설정 파일을 만드는 것뿐이라 몇 번 돌려도 안전합니다.
+설치 스크립트는 셸 연결·설정·명령 링크·상태줄을 준비하고, macOS에서는 사용량 갱신 LaunchAgent도 등록합니다. 여러 번 실행해도 기존 설정은 보존합니다.
 로그인 토큰은 어디에도 복사하지 않습니다.
 
 이제 `ccp`를 칩니다.
@@ -83,7 +83,68 @@ team:me@example.com │ Opus │ 주 ██░░┃░ 38%  5h █░░░┃�
 막대 안의 `┃`는 창에서 지금 위치입니다. 오른쪽 끝에 붙을수록 리셋이 가깝고, 막대가 `┃`에 못 미치면 페이스보다 덜 쓴 것입니다(ccp 메뉴와 같은 읽는 법). 70%부터 노랑, 90%부터 빨강으로 바뀝니다.
 리셋까지 남은 시간을 글자로도 보고 싶으면 `statusline.conf`에서 `show_reset = yes`.
 주간·세션은 Claude Code 가 직접 넘겨주는 값입니다. Fable 같은 **모델 전용 주간 한도**는 Claude Code 가 상태줄에 주지 않아,
-ccp 가 `/usage`로 조회한 값을 캐시해 `Fable ███┃░░ 47%` 처럼 이어서 보입니다. 10분마다 백그라운드로 갱신하고, 낡은 값에는 `~`가 붙습니다.
+ccp 가 `/usage`로 조회한 값을 캐시해 `Fable ███┃░░ 47%` 처럼 이어서 보입니다. 기본 10분이 지나면 갱신을 요청합니다.
+낡은 조각은 흐리게 표시하고 `cache MM/DD HH:MM~`를 붙입니다. Fable 눈금과 리셋은 **Fable 자체 리셋 시각**을 씁니다.
+리셋이 지난 창은 0% 사용으로 넘기되 `리셋 지남 · 추정`과 관측 시각을 붙입니다.
+
+## 사용량의 낡음·리셋·주기 갱신
+
+메뉴·그래프·표·리셋 일정·추천·상태줄은 `ccp_usage.py`의 같은 시간 보정 규칙을 씁니다.
+주간은 7일, 세션은 5시간, Fable 같은 모델 한도는 **자기 리셋 시각에서 7일**씩 넘겨 다음 창을 구합니다.
+여러 창이 지났어도 반복 계산하며 사용률은 0%로 추정합니다(남은 양 화면에서는 100%).
+`리셋 지남 · 추정 · cache MM/DD HH:MM`은 서버에서 새 값을 받은 것이 아니라는 뜻입니다. 그 사이 다른 Mac에서 쓴 양은 다음 성공 조회 전까지 알 수 없습니다.
+세션이 보고되지 않은 경우는 계속 `미보고`로 둡니다.
+
+TSV는 기존 **12칸**을 유지합니다. 마지막 메모 칸의 `ccp:v1:{...}` 접미사에 관측 시각, 각 창의 절대 리셋 시각(연도 포함), 추정한 창을 저장하며 화면에는 이 JSON을 숨깁니다.
+옛 캐시는 파일 수정 시각과 남은 분으로 보정하고, Fable 리셋이 없으면 주간 리셋을 대신 씁니다.
+30분 초과 값은 흐리게 표시하고 조회 시각을 붙입니다. 좁은 화면에서도 낡음·추정 안내를 보존하며, Fable 리셋이 주간과 다르면 별도로 적습니다.
+
+macOS 설치 시 `local.ccp.usage-refresh` LaunchAgent가 **데스크톱 로그인 세션 `gui/<uid>`에서 15분마다** 동작합니다.
+`ccp-usage-refresh`는 기본 계정과 `CLAUDE_PROFILES` 아래 로그인된 Claude 프로필을 차례로 조회합니다.
+최근 10분 안에 성공한 값은 건너뛰고, 전체 10분 예산 안에서 각 프로필에 최대 90초를 줍니다.
+전체 작업 락과 기존 프로필 락으로 중복 조회를 막고, 실패한 프로필이 나머지를 계속 밀어내지 않도록 마지막 시도 시각도 순서에 반영합니다.
+키체인이 잠기면 캐시를 쓰거나 Claude를 실행하지 않고 종료합니다. 데스크톱 로그아웃·절전·네트워크 실패 중에는 15분 신선도를 보장하지 못합니다.
+
+메뉴와 상태줄의 `start_refresh()`도 등록된 LaunchAgent를 `launchctl kickstart`로 요청합니다(`-k` 없음).
+작업을 launchd가 소유하므로 짧게 끝나는 hc 부모의 직접 자식으로 두지 않습니다.
+LaunchAgent가 없거나 요청이 실패하면 기존 분리 자식 방식으로 돌아가며, 이 보조 경로가 hc의 자식 정리에서도 살아남는다는 보장은 없습니다.
+SSH 설치는 plist만 준비하고 등록하지 않습니다. [키체인 복구 안내](docs/recovery.md)처럼 **각 Mac의 데스크톱 터미널에서** 설치해야 합니다.
+
+각 Mac에서 승인된 코드가 배치된 뒤 실행할 명령:
+
+```zsh
+cd ~/projects/ccp
+./install.sh
+source ~/.zshrc
+launchctl print "gui/$(id -u)/local.ccp.usage-refresh"
+# 즉시 한 번 요청(이미 실행 중이면 중복 실행/중단하지 않음)
+launchctl kickstart "gui/$(id -u)/local.ccp.usage-refresh"
+ccp-usage
+```
+
+설치는 토큰을 옮기거나 로그인을 바꾸지 않습니다. launchd에는 설치 시의 Python 경로·PATH·설정 경로·프로필 경로만 저장합니다.
+`config.zsh`의 `CLAUDE_PROFILES` 변경이나 CLI 경로 변경 후에는 설치를 다시 실행하고 다음 데스크톱 로그인에서 새 환경을 반영합니다.
+Linux에서는 자동 등록하지 않으며 `~/.local/bin/ccp-usage-refresh`를 직접 실행하거나 사용자 스케줄러에 연결할 수 있습니다.
+수동 조회 예: `~/.local/bin/ccp-usage-refresh --min-age 600 --max-seconds 600`.
+
+주기 갱신만 끄려면 `./install.sh --no-usage-refresh` 또는 아래 표식 파일을 만듭니다. 메뉴·상태줄의 개별 갱신은 유지합니다.
+표식은 설치를 다시 실행해도 유지됩니다. 사용자 지정 `CCP_CONFIG_DIR`이면 아래 경로도 그 위치로 바꿉니다.
+
+```zsh
+touch ~/.config/ccp/usage-refresh.disabled
+# 다시 켜기: 표식을 옮겨 보존한 다음 재설치
+mv ~/.config/ccp/usage-refresh.disabled ~/.config/ccp/usage-refresh.disabled.saved
+~/projects/ccp/install.sh
+```
+
+LaunchAgent를 제거하려면 실행 중인 갱신이 끝난 뒤 데스크톱 터미널에서 아래처럼 등록을 해제하고 파일을 옮겨 보존합니다.
+
+```zsh
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.ccp.usage-refresh.plist
+mkdir -p ~/.config/ccp/disabled-agents
+mv ~/Library/LaunchAgents/local.ccp.usage-refresh.plist ~/.config/ccp/disabled-agents/
+touch ~/.config/ccp/usage-refresh.disabled
+```
 
 ## 자주 묻는 질문
 
@@ -94,10 +155,10 @@ ccp 가 `/usage`로 조회한 값을 캐시해 `Fable ███┃░░ 47%` �
 **한도를 조회할 때 크레딧이나 토큰이 쓰이나요?**
 아닙니다. 세 경로 모두 모델을 호출하지 않습니다.
 - 상태줄: Claude Code가 상태줄 스크립트에 넘겨주는 `rate_limits` 값을 읽기만 합니다. 요청 자체가 없습니다.
-- 메뉴의 Claude 계정: 계정 ID가 일치하는 Claude 로컬 사용량 스냅숏을 먼저 표시합니다. `cache` 옆은 조회 시각이며, 5분이 지났거나 리셋 시각이 지난 값은 `stale`로 표시하고 추천에서 제외합니다. 1분 이상 지난 값은 백그라운드에서 `claude -p /usage`로 갱신합니다(프로필별 중복 방지, 8초 제한). 저장된 값이 없으면 `refreshing`이 표시되며, 갱신 후 메뉴를 다시 열면 반영됩니다.
+- 메뉴의 Claude 계정: 계정 ID가 일치하는 로컬 스냅숏과 ccp 캐시 중 최신 값을 즉시 표시합니다. 30분을 넘기면 숫자·막대를 흐리게 표시하고 `stale · cache MM/DD HH:MM`로 관측 시각을 알립니다. 추천은 확인된 최신 값을 우선하며, 그런 후보가 없으면 추정·낡음 표시를 유지한 채 대체 후보를 고릅니다. 리셋이 지났으면 이전 사용률을 표시하지 않고 아래 롤오버 규칙을 적용합니다. 메뉴는 뒤에서 `claude -p /usage` 갱신을 요청하며 프로필당 최대 90초를 기다립니다. 저장된 값이 없으면 `refreshing`이 표시되며, 갱신 후 메뉴를 다시 열면 반영됩니다.
   JSON 출력으로 확인하면 모델 턴 0, 비용 0 USD, 입력·출력 토큰 0입니다.
 - 메뉴의 Codex 계정: `codex app-server`에 계정·한도 읽기 요청만 보냅니다.
-메뉴가 뜨기까지 몇 초 걸리는 것은 네트워크 조회 시간이고, 한도에는 반영되지 않습니다.
+Claude 메뉴는 캐시를 먼저 표시하므로 갱신 완료를 기다리지 않습니다. Codex의 네트워크 조회 시간도 한도에는 반영되지 않습니다.
 
 **계정에 들어갔는데 로그인을 다시 하라고 해요. 메뉴에 `키체인 잠김`이 떠요.**
 macOS 는 토큰을 키체인에 두는데, SSH 로 들어온 셸이나 데스크톱 밖에서 띄운 세션에서는 키체인이 잠겨 있어 토큰이 파일로 새고, 그게 나중에 로그인을 끊습니다.
@@ -128,7 +189,7 @@ CCP_CLAUDE_ARGS=(--dangerously-skip-permissions)
   항목은 Codex 안에서 `/statusline`으로 바꿉니다. Codex는 외부 스크립트를 붙일 수 없어 ccp 프로필 이름은 거기 못 넣습니다. 어느 계정인지는 ccp 메뉴에서 봅니다.
 
 **메뉴가 뜨는 데 몇 초 걸립니다.**
-계정마다 남은 한도를 조회하는 시간입니다. 계정당 3초 정도이고 병렬로 돌아 전체도 그 정도입니다. 위에서 말한 대로 크레딧은 들지 않습니다.
+Claude는 저장된 값을 즉시 표시하고 뒤에서 갱신합니다. Codex가 함께 있으면 계정 한도 조회를 기다릴 수 있습니다. 조회 자체에는 크레딧이 들지 않습니다.
 
 **메뉴 언어를 바꾸고 싶습니다.**
 메뉴·메시지·상태줄은 한국어, English, 日本語, 中文을 지원합니다. 기본은 터미널 로케일(`LANG`)을 따르고,
@@ -171,7 +232,7 @@ Claude Code는 기록을 실행 폴더별로 쌓습니다. `ccp`로 프로필을
 ## 더 보기
 
 - [동작 원리와 건드리면 안 되는 것](docs/how-it-works.md) — 무엇을 공유하고 무엇을 분리하는지
-- 제거: `~/.zshrc`에서 ccp 줄을 지우고 `rm -rf ~/projects/ccp ~/.config/ccp ~/.claude-profiles ~/.codex-profiles`. `~/.claude`는 그대로 남습니다.
+- 제거: 위의 LaunchAgent 제거 절차를 먼저 실행합니다. 이후 `~/.zshrc`에서 ccp 줄을 지우고 `rm -rf ~/projects/ccp ~/.config/ccp ~/.claude-profiles ~/.codex-profiles`. `~/.claude`는 그대로 남습니다.
 - 테스트: `zsh tests/test_ccp_zsh.sh` · `python3 -m pytest tests`
 
 MIT License

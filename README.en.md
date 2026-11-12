@@ -2,6 +2,8 @@
 
 # ccp
 
+Usage freshness update: macOS installs a GUI LaunchAgent that refreshes logged-in Claude profiles sequentially every 15 minutes. Values older than 30 minutes are dimmed and timestamped. Expired weekly/session/model windows roll forward as **0% used, estimated**; Fable uses its own reset time. The 12-column cache format stays compatible. See the [current setup, opt-out and removal instructions](README.md#사용량의-낡음리셋주기-갱신). `/usage` still does not invoke a model or consume credits.
+
 A zsh tool for switching between several Claude Code accounts without logging out and back in.
 
 When one account hits its quota you move to another, and **conversation history, settings and skills carry over**.

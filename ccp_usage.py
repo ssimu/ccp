@@ -31,6 +31,110 @@ import tempfile
 FIELDS = 12
 MONTHS = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1)}
 
+# 메모의 기계용 접미사. 12칸 계약은 유지하고 절대 시각(연도 포함)을 보존한다.
+# observed는 파일을 다시 저장해도 실제 조회 시각이 새것으로 둔갑하지 않게 한다.
+META = "ccp:v1:"
+
+
+def note_parts(row):
+    note, sep, raw = row[11].partition(META)
+    try:
+        meta = json.loads(raw) if sep else {}
+        if not isinstance(meta, dict):
+            meta = {}
+    except (ValueError, TypeError):
+        meta = {}
+    return note.rstrip(" |"), meta
+
+
+def set_metadata(row, meta):
+    note, _ = note_parts(row)
+    row[11] = (note + " | " if note else "") + META + json.dumps(meta, separators=(",", ":"), sort_keys=True)
+
+
+def _number(value):
+    try:
+        n = float(value)
+        return n if math.isfinite(n) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def roll_window(used, reset, window_min, now=None):
+    """지난 창은 0% 추정으로 넘긴다. 서버를 다시 조회한 값은 아니다."""
+    now = time.time() if now is None else now
+    reset = _number(reset)
+    estimated = reset is not None and reset <= now
+    if estimated:
+        period = window_min * 60
+        reset += (math.floor((now - reset) / period) + 1) * period
+        if used is not None and used != "":
+            used = 0
+    return used, reset, estimated
+
+
+def normalize(row, age=0, now=None):
+    """Claude TSV의 유일한 시간 보정 경로. 입력은 바꾸지 않으며 반복 적용해도 같다.
+
+    옛 캐시는 저장 시각 + 남은 분으로 절대 리셋을 복원한다. 모델 시각이 없으면
+    보정 전 주간 시각을 사용한다. 관측되지 않은 세션(null)은 계속 빈칸이다.
+    """
+    now = time.time() if now is None else now
+    row = list(row)
+    if row[6] not in ("ok", "stale"):
+        return row
+    note, meta = note_parts(row)
+    observed = _number(meta.get("observed"))
+    if observed is None:
+        observed = now - age
+    resets = dict(meta.get("resets") or {})
+    for name, index in (("weekly", 1), ("session", 3)):
+        if _number(resets.get(name)) is None:
+            minutes = _number(row[index])
+            resets[name] = now - age + minutes * 60 if minutes is not None else None
+    if _number(resets.get("model")) is None:
+        resets["model"] = resets.get("weekly")
+    estimated = set(meta.get("estimated") or [])
+    for name, pct, minutes, stamp, window in (("weekly", 0, 1, 7, 10080), ("session", 2, 3, 8, 300), ("model", 5, None, None, 10080)):
+        used, reset, rolled = roll_window(row[pct], resets.get(name), window, now)
+        resets[name] = reset
+        row[pct] = str(used)
+        if rolled and row[pct]:
+            estimated.add(name)
+        if minutes is not None and reset is not None:
+            row[minutes] = str(max(0, round((reset - now) / 60)))
+            row[stamp] = datetime.datetime.fromtimestamp(reset).strftime("%m/%d %H:%M")
+    if now - observed > STALE_AFTER or estimated:
+        row[6] = "stale"
+        if "cache " not in note:
+            note = (note + " · " if note else "") + "cache " + datetime.datetime.fromtimestamp(observed).strftime("%m/%d %H:%M")
+    row[11] = note
+    meta.update(observed=observed, resets=resets, estimated=sorted(estimated))
+    set_metadata(row, meta)
+    return row
+
+
+def model_reset(row, now=None):
+    now = time.time() if now is None else now
+    _, meta = note_parts(row)
+    reset = _number((meta.get("resets") or {}).get("model"))
+    if reset is None:
+        return (int(row[1]) if row[1].lstrip("-").isdigit() else None), row[7]
+    return max(0, round((reset - now) / 60)), datetime.datetime.fromtimestamp(reset).strftime("%m/%d %H:%M")
+
+
+def display_note(row, lang=None):
+    from ccp_i18n import t
+    note, meta = note_parts(row)
+    parts = []
+    if meta.get("estimated"):
+        parts.append(t("usage_estimated", lang))
+    elif row[6] == "stale":
+        parts.append(t("usage_stale", lang))
+    if note:
+        parts.append(note)
+    return " · ".join(parts)
+
 
 def config_dir():
     return os.environ.get("CCP_CONFIG_DIR") or os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "ccp")
@@ -65,7 +169,7 @@ def auth_file(profile_dir):
     return os.path.join(profile_dir, ".claude.json") if profile_dir else os.path.expanduser("~/.claude.json")
 
 
-def keychain_locked():
+def keychain_locked(deadline=None):
     """macOS 에서 로그인 키체인을 열 수 없는 맥락인지 — SSH 세션, 데스크톱 세션 밖에서 띄운 launchd 작업 등.
 
     거기서 claude 를 띄우면 키체인 대신 <프로필>/.credentials.json 에 토큰을 돌린다. 그러면 파일과 키체인의
@@ -74,13 +178,16 @@ def keychain_locked():
     claude 를 띄우지 않는다. `security` 가 "User interaction is not allowed" 를 낼 때만 잠김으로 본다 —
     키체인 파일이 없거나 다른 오류면 평소처럼 진행한다. 알고 하는 거면 CCP_SKIP_KEYCHAIN_CHECK=1.
     """
+    timeout = 5 if deadline is None else min(5, deadline - time.monotonic())
+    if timeout <= 0:
+        return True  # 검사 예산도 없으면 Claude를 띄우지 않는다.
     if sys.platform != "darwin" or os.environ.get("CCP_SKIP_KEYCHAIN_CHECK") == "1":
         return False
     kc = os.path.join(os.environ.get("HOME") or os.path.expanduser("~"), "Library/Keychains/login.keychain-db")
     if not os.path.exists(kc):
         return False
     try:
-        r = subprocess.run(["security", "show-keychain-info", kc], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["security", "show-keychain-info", kc], capture_output=True, text=True, timeout=timeout)
     except Exception:
         return False
     return r.returncode != 0 and "interaction is not allowed" in ((r.stderr or "") + (r.stdout or "")).lower()
@@ -109,9 +216,11 @@ def _parse_reset(text, now):
         dt = datetime.datetime(int(yr) if yr else now.year, mo, d, h, mi)
     except ValueError:
         return None
-    # 연도가 없을 때 과거로 나오면 내년으로 본다(연말 경계).
+    # 연도 없는 7일/5시간 리셋은 현재와 가까운 연도로 본다(연말 양방향).
     if not yr and (now - dt).days > 180:
         dt = dt.replace(year=now.year + 1)
+    elif not yr and (dt - now).days > 180:
+        dt = dt.replace(year=now.year - 1)
     return dt
 
 
@@ -130,11 +239,12 @@ def parse(text, now=None):
     w, wdt = row(r"Current week \(all models\):")
     s, sdt = row(r"Current session:")
     mm = re.search(r"Current week \((?!all models)([^)]+)\):([^\n]*)", text)
-    mn = mp = None
+    mn = mp = mdt = None
     if mm:
         mn = mm.group(1)
         pc = re.search(r"(\d+)% used", mm.group(2))
         mp = int(pc.group(1)) if pc else None
+        mdt = _parse_reset(mm.group(2), now)
 
     # 분은 반올림 — 버림이면 '1:19am 리셋'이 22:37에 2시간41분으로 나와 1분 어긋나 보인다.
     def mins(dt):
@@ -151,7 +261,11 @@ def parse(text, now=None):
     # claude 는 7일/5시간 창 고정. 뒤 세 칸은 codex 와 형식을 맞추려고 붙인다.
     # 세션 줄이 없으면 빈칸으로 둔다 = '미보고'. 2026-11-07: 쓰고 있는 계정(imok)에도 API 가 세션 항목을 아예 안 줬는데
     # 그걸 0% 로 꾸미니 "새 창 · 5시간 전부 남음" 으로 떠서 틀렸다. 렌더러가 '세션 미보고' 로 적는다(조회 실패와 다른 글).
-    return "\t".join([num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""])
+    result = [num(w), mins(wdt), num(s), mins(sdt), mn or "", num(mp), "ok", stamp(wdt), stamp(sdt), "10080", "300", ""]
+    set_metadata(result, {"observed": now.timestamp(), "resets": {
+        key: value.timestamp() if value else None
+        for key, value in (("weekly", wdt), ("session", sdt), ("model", mdt or wdt))}})
+    return "\t".join(normalize(result, now=now.timestamp()))
 
 
 REFRESH_TIMEOUT = 90   # 초. 뒤 갱신은 사람이 기다리지 않는다 — 2026-11-09 wooui(부하 큰 Mac)에서 /usage 가 18~37초 걸려 20초 제한이면 매번 실패, 캐시가 하루 넘게 멈췄다
@@ -226,6 +340,7 @@ def native_cache(profile_dir):
                            resets_at=(usage.get(key) or {}).get("resets_at"))
                       for key, kind in (("five_hour", "session"), ("seven_day", "weekly_all"))]
         row = [""] * FIELDS
+        resets = {}
         row[6], row[9], row[10] = "ok", "10080", "300"
         for slot in limits:
             kind, pct = slot.get("kind"), slot.get("percent")
@@ -240,30 +355,52 @@ def native_cache(profile_dir):
                     dt = datetime.datetime.fromisoformat(reset.replace("Z", "+00:00")).astimezone()
                     row[base + 1] = str(max(0, round((dt.timestamp() - time.time()) / 60)))
                     row[8 if base == 2 else 7] = dt.strftime("%m/%d %H:%M")
-                    if dt.timestamp() <= time.time():
-                        row[6] = "stale"
+                    resets["session" if base == 2 else "weekly"] = dt.timestamp()
             elif kind == "weekly_scoped":
                 model = ((slot.get("scope") or {}).get("model") or {}).get("display_name")
                 if model and (not row[5] or pct > int(row[5])):
                     row[4], row[5] = model.replace("\t", " ").replace("\n", " "), str(int(round(pct)))
+                    reset = slot.get("resets_at")
+                    resets["model"] = datetime.datetime.fromisoformat(reset.replace("Z", "+00:00")).timestamp() if reset else None
         if not row[0] and not row[2]:
             return None, None
         if age > STALE_AFTER:
             row[6] = "stale"
             # 낡은 값일 때만 언제 것인지 적는다 — 신선하면 카드가 깨끗해야 한다(옛 /usage 파싱 때와 같은 모양).
             row[11] = "cache " + datetime.datetime.fromtimestamp(cache["fetchedAtMs"] / 1000).strftime("%m/%d %H:%M")
-        return row, age
+        set_metadata(row, {"observed": cache["fetchedAtMs"] / 1000, "resets": resets})
+        return normalize(row, age), age
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return None, None
 
 
 def start_refresh(profile_dir):
+    # launchd가 소유한 작업은 hc 같은 짧은 부모의 자식 정리에 속하지 않는다.
+    # -k는 쓰지 않는다: 이미 실행 중인 작업을 끊거나 중복 실행하지 않는다.
+    agent = os.path.expanduser('~/Library/LaunchAgents/local.ccp.usage-refresh.plist')
+    disabled = os.path.exists(os.path.join(config_dir(), 'usage-refresh.disabled'))
+    if sys.platform == 'darwin' and os.path.exists(agent) and not disabled:
+        try:
+            result = subprocess.run(['launchctl', 'kickstart', f'gui/{os.getuid()}/local.ccp.usage-refresh'],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=1)
+            if result.returncode == 0:
+                return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    # 미설치/Linux 보조 경로. 관리 터미널의 자식 일괄 정리까지 피한다고 보장하지 않는다.
     try:
         subprocess.Popen([sys.executable, os.path.abspath(__file__), "refresh", profile_dir],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         pass
+
+
+def best_cache(profile_dir, model_only=False):
+    candidates = [(r, a) for r, a in (native_cache(profile_dir), read_cache(profile_dir))
+                  if r is not None and r[6] in ('ok', 'stale') and (not model_only or (r[4] and r[5]))]
+    return min(candidates, key=lambda item: item[1]) if candidates else (None, None)
 
 
 def menu(profile_dir):
@@ -276,14 +413,20 @@ def menu(profile_dir):
     # 백그라운드 갱신(refresh)이 써 둔 캐시 파일이 Claude 의 스냅숏보다 새로우면 그쪽을 쓴다 —
     # 갱신이 끝나도 스냅숏만 보면 영원히 낡은 값이 떠 있었다.
     cached, cage = read_cache(profile_dir)
-    if cached is not None and cached[6] == "ok" and (row is None or (age is not None and cage < age)):
+    if cached is not None and cached[6] in ("ok", "stale") and (row is None or (age is not None and cage < age)):
         # /usage 글에는 세션 줄이 '0% 새 창' 일 때도 빠질 수 있어 글만으로는 '미보고' 와 구분이 안 된다 — 스냅숏에 세션 값이 있으면 그걸 가져온다
         if row is not None and not cached[2] and row[2]:
             cached = list(cached); cached[2], cached[3], cached[8] = row[2], row[3], row[8]
+            _, meta = note_parts(cached)
+            _, source = note_parts(row)
+            meta['resets']['session'] = source['resets']['session']
+            if 'session' in source.get('estimated', []):
+                meta['estimated'] = sorted(set(meta.get('estimated', []) + ['session']))
+            # 오래된 세션을 보충했다면 그 조회 시각도 숨기지 않는다.
+            meta['observed'] = min(meta['observed'], source['observed'])
+            set_metadata(cached, meta)
+            cached = normalize(cached)
         row, age = cached, cage
-        if age > STALE_AFTER:
-            row = list(row); row[6] = "stale"
-            row[11] = "cache " + datetime.datetime.fromtimestamp(time.time() - age).strftime("%m/%d %H:%M")
     if row is None or age > 60 or row[6] == "stale":
         start_refresh(profile_dir)
     if row is not None:
@@ -291,9 +434,9 @@ def menu(profile_dir):
     return "\t".join([""] * 6 + ["fail"] + [""] * 4 + ["refreshing"])
 
 
-def refresh(profile_dir):
+def refresh(profile_dir, timeout=REFRESH_TIMEOUT, deadline=None, min_age=0):
     """One bounded refresh per profile; repeated menu opens do not pile up CLIs."""
-    if keychain_locked():
+    if (keychain_locked() if deadline is None else keychain_locked(deadline=deadline)):
         return
     path = cache_path(profile_dir) + ".lock"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -302,6 +445,10 @@ def refresh(profile_dir):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        if min_age:
+            cached, age = best_cache(profile_dir)
+            if cached is not None and cached[6] == 'ok' and age < min_age:
+                return
         lock.seek(0)
         try:
             last = float(lock.read())
@@ -309,11 +456,67 @@ def refresh(profile_dir):
             last = 0
         if time.time() - last < 60:
             return
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            return
         lock.seek(0)
         lock.truncate()
         lock.write(str(time.time()))
         lock.flush()
-        save(profile_dir, probe(profile_dir, tries=1, timeout=REFRESH_TIMEOUT))
+        save(profile_dir, probe(profile_dir, tries=1, timeout=timeout))
+
+
+def profile_dirs():
+    """메뉴와 같이 기본 프로필 및 실제 프로필 디렉터리를 열거한다."""
+    root = os.environ.get('CLAUDE_PROFILES') or os.path.expanduser('~/.claude-profiles')
+    yield ''
+    try:
+        with os.scandir(root) as entries:
+            dirs = sorted(e.path for e in entries if e.is_dir() and not e.name.startswith('.') and not e.name.endswith('.lock'))
+    except OSError:
+        dirs = []
+    yield from dirs
+
+
+def refresh_all(min_age=600, max_seconds=600):
+    """15분 타이머용: 한 번에 하나씩, 최근 성공은 생략, 전체 작업은 최대 10분.
+
+    전체 락과 기존 프로필 락을 함께 쓴다. 오래된 것부터 처리하므로 시간 상한에
+    걸리더라도 뒤쪽 프로필이 매번 굶지 않는다. 실패는 기존 캐시를 보존한다.
+    """
+    deadline = time.monotonic() + max_seconds
+    if os.path.exists(os.path.join(config_dir(), 'usage-refresh.disabled')) or keychain_locked(deadline=deadline):
+        return
+    path = os.path.join(config_dir(), 'cache', 'refresh-all.lock')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a+') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        pending = []
+        for profile in profile_dirs():
+            if time.monotonic() >= deadline:
+                return
+            if not logged_in(profile):
+                continue
+            row, age = best_cache(profile)
+            if row is not None and row[6] == 'ok' and age < min_age:
+                continue
+            # 실패한 선두 프로필 때문에 시간 상한 뒤의 프로필이 매번 굶지 않게
+            # 마지막 시도 시각도 순서에 반영한다(신선함 판정에는 절대 쓰지 않음).
+            try:
+                with open(cache_path(profile) + '.lock') as attempt:
+                    last_attempt = _number(attempt.read()) or 0
+            except OSError:
+                last_attempt = 0
+            observed = time.time() - age if age is not None else 0
+            pending.append((max(observed, last_attempt), profile))
+        for _, profile in sorted(pending):
+            if time.monotonic() >= deadline:
+                break
+            refresh(profile, deadline=deadline, min_age=min_age)
 
 
 def save(profile_dir, line):
@@ -339,7 +542,13 @@ def read_cache(profile_dir):
         age = max(0.0, __import__("time").time() - os.path.getmtime(p))
     except OSError:
         return None, None
-    return (line.split("\t") + [""] * FIELDS)[:FIELDS], age
+    row = (line.split("\t") + [""] * FIELDS)[:FIELDS]
+    row = normalize(row, age)
+    _, meta = note_parts(row)
+    observed = _number(meta.get('observed'))
+    if observed is not None:
+        age = max(0, time.time() - observed)
+    return row, age
 
 
 if __name__ == "__main__":
