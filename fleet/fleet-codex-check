@@ -63,6 +63,9 @@ def homes():
 
 
 def local():
+    # Hermes 가 SSH 로 부르면 PATH 가 /usr/bin 뿐이라 codex 를 못 찾는다(2026-11-13 macmini) — 설치 위치를 앞에 붙인다
+    extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    os.environ["PATH"] = os.pathsep.join(extra + [os.environ.get("PATH", "")])
     import ccp_codex
     rows = []
     for name, d in homes():
@@ -75,7 +78,7 @@ def local():
 def remote(name):
     me = os.path.realpath(__file__)
     try:
-        p = subprocess.run([HC, "exec", "--on", name, "--timeout", "120", "zsh", "-lc", f"python3 {me}"],
+        p = subprocess.run([HC, "exec", "--on", name, "--timeout", "120", "zsh", "-lc", f"python3 {me} --json"],
                            capture_output=True, text=True, timeout=140)
         r = json.loads(next(l for l in reversed(p.stdout.splitlines()) if l.startswith("{")))
         r["host"] = name
