@@ -19,6 +19,7 @@ Telegram ──► Hermes(서버) ──ssh/Tailscale──► 관문 Mac: fleet
 | `fleet-dispatch.example.json` | → `~/.config/ccp/fleet-dispatch.json` | 머신별 기본 프로필·작업 폴더 |
 | `ccp-fleet-status` | 관문(어느 Mac 이든) | 네 Mac 의 `ccp-recover status` 를 hc 터미널로 모아 보인다 (`--json`) |
 | `fleet-net-check` | 모든 Mac(관문은 `--all`) | 나가는 연결이 되는지, TIME_WAIT 개수, macOS 26 이상이면 부팅 일수를 본다. `fleet-report` 가 `net` 으로 싣고 Hermes 경보가 알린다 — 아래 "macOS 26: 49.7일마다 재부팅" |
+| `fleet-codex-check` | 모든 Mac(관문은 `--all`) | Codex 프로필마다 계정 조회가 실제로 되는지(로그아웃·`token_revoked`), 한 Mac 에서 두 프로필이 같은 워크스페이스에 로그인됐는지 본다(워크스페이스는 해시 8자로만 비교). `fleet-report` 가 `codex_login` 으로 싣고 Hermes 경보가 알린다. 2026-11-13 이 Mac 기본 프로필이 다른 프로필과 같은 워크스페이스였던 것을 계기로 |
 | `fleet-report` | 관문 | SSH 로 들어온 맥락에서도 안전하게 상태+한도를 JSON 으로 — Hermes 의 아침 보고·경보가 읽는다 |
 | `ccp-relogin` | 모든 Mac | `~/.config/ccp/fleet.json`(프로필↔이메일↔조직) 을 읽어 `ccp-recover login` 을 부른다. 비밀값은 화면에 안 찍는다 |
 | `hermes/` | Hermes 서버 `~/.hermes/scripts`, `~/.hermes/skills/devops/fleet-dispatch/` | `fleet.sh`(인자 안전 전달), `fleet_report.sh`, `fleet_alert.py`, `fleet_jobs_notify.sh`, 스킬 `SKILL.md` |

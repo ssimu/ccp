@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """함대 경보 — 조용히 끝나는 감시. 출력이 있을 때만 Telegram 으로 간다.
-기준: 로그아웃된 프로필(imok 제외), 주간 남은 양 5% 이하(이때 fleet-pick 이 다른 계정으로 넘긴다), 모델(Fable) 한도 소진, 관문 접속 실패, 나가는 연결 막힘·macOS 26 장기 가동(49.7일 TIME_WAIT 결함, fleet-net-check)."""
+기준: 로그아웃된 프로필(imok 제외), 주간 남은 양 5% 이하(이때 fleet-pick 이 다른 계정으로 넘긴다), 모델(Fable) 한도 소진, 관문 접속 실패, 나가는 연결 막힘·macOS 26 장기 가동(49.7일 TIME_WAIT 결함, fleet-net-check), Codex 로그인 풀림·워크스페이스 겹침(fleet-codex-check)."""
 import json, os, subprocess, sys
 EXCLUDE = {"imok"}
 LEFT_MAX = 5   # 남은 양이 이 % 이하이면 알린다 — fleet-pick 의 전환 기준(주간 95%)과 같게
@@ -34,7 +34,7 @@ for u in d.get("usage", {}).get("codex", []):
     w = pct(u.get("weekly_pct"))
     if w is not None and 100 - w <= LEFT_MAX:
         alerts.append("Codex %s: 주간 %d%% 남음 (리셋 %s)" % (u["profile"], 100 - w, u.get("weekly_reset") or "?"))
-for n in d.get("net", []) if isinstance(d.get("net"), list) else []:
+for n in [x for k in ("net", "codex_login") if isinstance(d.get(k), list) for x in d[k]]:
     for w in n.get("warn", []):
         alerts.append("%s: %s" % (n.get("host", "?"), w))
 if alerts:

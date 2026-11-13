@@ -37,5 +37,11 @@ try:
                                     capture_output=True, text=True, timeout=300).stdout)
 except Exception as e:
     net = {"error": type(e).__name__}
-print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": __import__("socket").gethostname().split(".")[0], "hosts": hosts, "usage": usage, "net": net}, ensure_ascii=False))
+# Codex 프로필이 실제로 로그인됐는지·한 Mac 에서 워크스페이스가 겹치지 않는지(2026-11-13) — 이것도 키체인 불필요
+try:
+    codex_login = json.loads(subprocess.run([os.path.expanduser("~/projects/ccp/fleet/fleet-codex-check"), "--all", "--json"],
+                                            capture_output=True, text=True, timeout=600).stdout)
+except Exception as e:
+    codex_login = {"error": type(e).__name__}
+print(json.dumps({"generated_at": datetime.datetime.now().astimezone().isoformat(timespec="minutes"), "gateway": __import__("socket").gethostname().split(".")[0], "hosts": hosts, "usage": usage, "net": net, "codex_login": codex_login}, ensure_ascii=False))
 PY

@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""fleet-codex-check [--all] [--json] — Codex 프로필이 실제로 로그인돼 있고, 한 Mac 안에서 서로 다른 워크스페이스를 쓰는지 본다.
+
+왜(2026-11-13 이 Mac): 기본 프로필이 어느 날 다른 프로필과 같은 워크스페이스로 다시 로그인돼 있었다.
+ccp-fleet-status 는 Claude 토큰이 있는지만 보고, 메뉴는 두 줄이 같은 사용량을 보여 줄 뿐이라 아무도 몰랐다.
+그 결과 한 워크스페이스는 두 번 쓰이고 다른 하나는 놀았다. 토큰이 폐기된 프로필(token_revoked)도 여기서 잡는다.
+
+판정(이 Mac):
+  - 계정 조회가 안 됨(로그아웃·토큰 폐기·네트워크) → "로그인 확인 안 됨"
+  - 두 프로필의 access token 이 같은 워크스페이스(chatgpt_account_id)를 가리킴 → "같은 워크스페이스"
+워크스페이스 id 는 sha256 앞 8자로만 비교·출력한다(이메일·id·이름은 내보내지 않음).
+--all 은 hc 로 붙은 기계마다 같은 검사를 돈다(Codex 는 키체인을 안 써서 hc exec 로 충분).
+출력 JSON: {"host","profiles":[{"profile","ws","plan","ok"}],"warn":[…]} (--all 이면 그 목록)
+"""
+import base64
+import glob
+import hashlib
+import json
+import os
+import socket
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+HC = os.path.expanduser("~/.local/bin/hc")
+
+
+def judge(profiles):
+    """profiles: [{"profile","ws","ok"}] → 경고 문장 목록(시험 대상)."""
+    warn = []
+    for p in profiles:
+        if not p.get("ok"):
+            warn.append(f"Codex {p['profile']}: 로그인 확인 안 됨(다시 로그인 필요할 수 있음)")
+    by_ws = {}
+    for p in profiles:
+        if p.get("ws"):
+            by_ws.setdefault(p["ws"], []).append(p["profile"])
+    for names in by_ws.values():
+        if len(names) > 1:
+            warn.append("Codex " + "·".join(names) + ": 같은 워크스페이스에 로그인됨 — 하나를 원래 워크스페이스로 다시 로그인")
+    return warn
+
+
+def workspace_hash(auth_path):
+    try:
+        tok = json.load(open(auth_path)).get("tokens", {})
+        acct = tok.get("account_id")
+        if not acct and tok.get("access_token"):
+            body = tok["access_token"].split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+            acct = claims.get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
+        return hashlib.sha256(acct.encode()).hexdigest()[:8] if acct else None
+    except Exception:
+        return None
+
+
+def homes():
+    out = [("default", os.path.expanduser("~/.codex"))]
+    out += [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.expanduser("~/.codex-profiles/*")))
+            if os.path.isdir(d) and not os.path.basename(d).startswith(".")]
+    return [(n, d) for n, d in out if os.path.exists(os.path.join(d, "auth.json"))]
+
+
+def local():
+    import ccp_codex
+    rows = []
+    for name, d in homes():
+        account, _ = ccp_codex._rpc(d)
+        rows.append({"profile": name, "ws": workspace_hash(os.path.join(d, "auth.json")),
+                     "plan": (account or {}).get("planType"), "ok": bool(account)})
+    return {"host": socket.gethostname().split(".")[0], "profiles": rows, "warn": judge(rows)}
+
+
+def remote(name):
+    me = os.path.realpath(__file__)
+    try:
+        p = subprocess.run([HC, "exec", "--on", name, "--timeout", "120", "zsh", "-lc", f"python3 {me}"],
+                           capture_output=True, text=True, timeout=140)
+        r = json.loads(next(l for l in reversed(p.stdout.splitlines()) if l.startswith("{")))
+        r["host"] = name
+        return r
+    except Exception as e:
+        return {"host": name, "profiles": [], "warn": [f"Codex 검사 실패({type(e).__name__})"]}
+
+
+def machines():
+    try:
+        d = json.loads(subprocess.run([HC, "machine", "ls", "--json"], capture_output=True, text=True, timeout=20).stdout)
+        return [m["name"] for m in d.get("machines", []) if m.get("state") == "connected"]
+    except Exception:
+        return []
+
+
+def main():
+    rows = [local()] + ([remote(m) for m in machines()] if "--all" in sys.argv else [])
+    if "--json" in sys.argv:
+        print(json.dumps(rows if "--all" in sys.argv else rows[0], ensure_ascii=False))
+        return
+    for r in rows:
+        print(f"== {r['host']}")
+        for p in r["profiles"]:
+            print(f"  {p['profile']:10} 워크스페이스 {p['ws'] or '?'}  {p['plan'] or '-':28} {'됨' if p['ok'] else '안 됨'}")
+        for w in r["warn"]:
+            print(f"  ! {w}")
+
+
+if __name__ == "__main__":
+    main()
